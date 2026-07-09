@@ -1,0 +1,22 @@
+{
+  "name": "mochila-archive-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api": "node server.mjs",
+    "dev": "vite --host 127.0.0.1 --port 5177",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5177"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@sveltejs/vite-plugin-svelte": "^6.2.0",
+    "svelte": "^5.38.6",
+    "tailwindcss": "^4.2.4",
+    "vite": "^7.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  }
+}
