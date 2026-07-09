@@ -59,7 +59,10 @@ func (a *App) GetFrontendState() FrontendState {
 	profile := archive.Profile{}
 	if a.service != nil {
 		providers = a.service.ProviderCards()
-		if loadedProfile, err := a.service.LoadProfile(); err == nil && loadedProfile != nil {
+		// Use ActiveUser() for multi-user consistency; fall back to LoadProfile() if unavailable.
+		if p, err := a.service.ActiveUser(); err == nil && p != nil {
+			profile = *p
+		} else if loadedProfile, err := a.service.LoadProfile(); err == nil && loadedProfile != nil {
 			profile = *loadedProfile
 		}
 	}
@@ -204,7 +207,23 @@ func (a *App) LogoutProfile() (*archive.Profile, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
-	return a.service.SaveProfile(archive.Profile{})
+	return a.service.Logout()
+}
+
+// ActiveUserProfile returns the currently active user's profile.
+func (a *App) ActiveUserProfile() (*archive.Profile, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	return a.service.ActiveUser()
+}
+
+// AvailableUsers returns all known user profiles.
+func (a *App) AvailableUsers() ([]archive.UserEntry, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	return a.service.AvailableUsers()
 }
 
 // ServeHTTP handles /media/{platform}/{id} requests from the webview.

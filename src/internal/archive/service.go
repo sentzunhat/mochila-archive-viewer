@@ -494,6 +494,30 @@ func (s *Service) SaveProfile(profile Profile) (*Profile, error) {
 	return s.store.LoadProfile()
 }
 
+func (s *Service) Logout() (*Profile, error) {
+    if s.store == nil {
+        return nil, errors.New("archive store is unavailable")
+    }
+    if err := s.store.Logout(); err != nil {
+        return nil, err
+    }
+    return s.store.ActiveUser()
+}
+
+func (s *Service) ActiveUser() (*Profile, error) {
+    if s.store == nil {
+        return &Profile{}, nil
+    }
+    return s.store.ActiveUser()
+}
+
+func (s *Service) AvailableUsers() ([]UserEntry, error) {
+    if s.store == nil {
+        return []UserEntry{}, nil
+    }
+    return s.store.AvailableUsers()
+}
+
 func (s *Service) MediaSource(platform string, id int) (string, error) {
 	item := s.MediaItem(platform, id)
 	if item == nil {

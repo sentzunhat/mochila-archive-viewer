@@ -587,6 +587,45 @@ func (s *Store) SaveProfile(profile Profile) error {
 	return err
 }
 
+
+func (s *Store) Logout() error {
+    _, err := s.db.Exec("UPDATE profile SET logged_in = 0")
+    return err
+}
+
+func (s *Store) ActiveUser() (*Profile, error) {
+    var profile Profile
+    row := s.db.QueryRow("SELECT username, full_name, logged_in FROM profile WHERE logged_in = 1 LIMIT 1")
+    err := row.Scan(&profile.Username, &profile.FullName, &profile.LoggedIn)
+    if err != nil {
+        return &Profile{}, nil
+    }
+    return &profile, nil
+}
+
+func (s *Store) AvailableUsers() ([]UserEntry, error) {
+    rows, err := s.db.Query("SELECT username, full_name FROM profile ORDER BY username")
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var result []UserEntry
+    for rows.Next() {
+        var u UserEntry
+        if err := rows.Scan(&u.Username, &u.FullName); err != nil {
+            return nil, err
+        }
+        result = append(result, u)
+    }
+    return result, rows.Err()
+}
+
+type UserEntry struct {
+    Username string `json:"username"`
+    FullName string `json:"fullName"`
+}
+
 func (s *Store) DebugJSON(platform string) (string, error) {
 	snapshot, err := s.LoadSnapshot(platform)
 	if err != nil {

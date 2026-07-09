@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import {
     GetFrontendState,
+    ActiveUserProfile,
+    AvailableUsers,
     GetPlatformSnapshot,
     GetMedia,
     GetConversations,
@@ -101,6 +103,8 @@
   let settingsOpen = false;
   let profileUsername = "";
   let profileFullName = "";
+  let availableUsers: { username: string; fullName: string }[] = [];
+  let searchInput: HTMLInputElement | undefined;
   let structureSection: StructureSection = "paths";
 
   const formatter = new Intl.NumberFormat();
@@ -112,6 +116,7 @@
   $: todayKey = `${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
 
   $: years = summary ? Object.entries(summary.years).sort(([a], [b]) => b.localeCompare(a)) : [];
+  $: maxYearCount = summary ? Math.max(...years.map(([, count]) => count), 1) : 0;
   $: categories = summary ? Object.entries(summary.categories).sort(([a], [b]) => a.localeCompare(b)) : [];
   $: types = summary ? Object.entries(summary.types).sort(([a], [b]) => a.localeCompare(b)) : [];
   $: filteredMedia = media.filter((item) => {
@@ -154,8 +159,9 @@
     const pending = items.filter((item) => {
       if (mediaSources[item.id]) return false;
       if (mediaLoading[item.id] === "resolved") return false;
+      if (mediaLoading[item.id] === "pending") return false;
       return true;
-    }).slice(0, 96);
+    }).slice(0, 50);
     if (pending.length === 0) return;
 
     const updates: Record<number, string> = {};
@@ -182,6 +188,31 @@
       }),
     );
     mediaSources = { ...mediaSources, ...updates };
+  }
+
+  // Reactive: auto-fetch sources for visible media (gallery view, filter changes)
+  $: if (!loading && summary && visibleMedia.length > 0) {
+    const unsourced = visibleMedia.filter(
+      (m) => !mediaSources[m.id] && mediaLoading[m.id] !== "resolved" && mediaLoading[m.id] !== "pending",
+    );
+    if (unsourced.length > 0) {
+      ensureMediaSources(unsourced);
+    }
+  }
+
+  // Reactive: auto-fetch sources for today view items
+  $: if (!loading && summary && onThisDayMedia.length > 0) {
+    const unsourced = onThisDayMedia.filter(
+      (m) => !mediaSources[m.id] && mediaLoading[m.id] !== "resolved" && mediaLoading[m.id] !== "pending",
+    );
+    if (unsourced.length > 0) {
+      ensureMediaSources(unsourced);
+    }
+  }
+
+  // Reactive: auto-fetch sources when conversations become visible
+  $: if (!loading && selectedConversationId && selectedConversation?.messages?.length === 0 && conversations.length > 0) {
+    openConversation(selectedConversationId);
   }
 
   async function retryFailedSources(items: MediaItem[]) {
@@ -227,7 +258,7 @@
     if (jsonFiles.length > 0) {
       await openJSONFile(0);
     }
-    await ensureMediaSources(media.slice(0, 48));
+    await ensureMediaSources(media.slice(0, 180));
   }
 
   onMount(async () => {
@@ -236,12 +267,45 @@
       profileUsername = appState.profile.username ?? "";
       profileFullName = appState.profile.fullName ?? "";
       await loadPlatform(activePlatform);
+
+      // Register keyboard shortcuts for search UX
+      document.addEventListener("keydown", handleSearchKeyboard);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
       loading = false;
     }
   });
+
+  function handleSearchKeyboard(event: KeyboardEvent) {
+    // Only handle when not already focused on an input/textarea/select
+    const target = event.target as HTMLElement;
+    const tag = target?.tagName;
+    if (tag === "INPUT" && target !== searchInput) return;
+    if (tag === "TEXTAREA" || tag === "SELECT") return;
+
+    // `/` focuses search from any view
+    if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      searchInput?.focus();
+      return;
+    }
+
+    // `Escape` clears search and blurs (only when focused on search input)
+    if (event.key === "Escape" && document.activeElement === searchInput) {
+      event.preventDefault();
+      searchQuery = "";
+      searchInput?.blur();
+      return;
+    }
+
+    // `Cmd/Ctrl+F` focuses search from any view
+    if ((event.metaKey || event.ctrlKey) && event.key === "f") {
+      event.preventDefault();
+      searchInput?.focus();
+      searchInput?.select();
+    }
+  }
 
   async function pickZips() {
     selecting = true;
@@ -347,6 +411,31 @@
       profileOpen = false;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
+    }
+  }
+
+  async function switchUser(username: string) {
+    try {
+      const users = await AvailableUsers();
+      const user = users.find(u => u.username === username);
+      if (user) {
+        profileUsername = user.username;
+        profileFullName = user.fullName;
+        // Set this user as active by saving with loggedIn=true
+        const profile = await SaveProfile(user.username, user.fullName);
+        appState = { ...appState, profile };
+        profileOpen = false;
+      }
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    }
+  }
+
+  async function loadAvailableUsers() {
+    try {
+      availableUsers = await AvailableUsers();
+    } catch (caught) {
+      // Silently fail — user list is optional
     }
   }
 </script>
@@ -458,7 +547,7 @@
     {#if view === "gallery"}
       <section class="controls" aria-label="Gallery filters">
         <div class="search-box">
-          <input type="text" placeholder="Search files, categories, dates..." bind:value={searchQuery} />
+          <input type="text" placeholder="Search files, categories, dates..." bind:value={searchQuery} bind:this={searchInput} />
           {#if searchQuery}
             <button class="clear-search" on:click={() => (searchQuery = "")}>×</button>
           {/if}
@@ -475,7 +564,7 @@
         </label>
         <label>
           <span>Category</span>
-          <select bind:value={selectedCategory}>
+          <select bind:value={selectedCategory} on:change={() => (visibleLimit = 180)}>
             <option value="all">All categories</option>
             {#each categories as [category, count]}
               <option value={category}>{category} ({formatter.format(count)})</option>
@@ -484,7 +573,7 @@
         </label>
         <label>
           <span>Type</span>
-          <select bind:value={selectedType}>
+          <select bind:value={selectedType} on:change={() => (visibleLimit = 180)}>
             <option value="all">All types</option>
             {#each types as [type, count]}
               <option value={type}>{type} ({formatter.format(count)})</option>
@@ -507,7 +596,7 @@
           {#each years as [year, count]}
             <button class:active={selectedYear === year} on:click={() => setYear(year)}>
               <strong>{year}</strong>
-              <span class="bar"><span style={`width:${Math.max(4, (count / summary.mediaCount) * 100)}%`}></span></span>
+              <span class="bar"><span style={`width:${Math.max(4, (count / maxYearCount) * 100)}%`}></span></span>
               <em>{formatter.format(count)}</em>
             </button>
           {/each}
@@ -532,7 +621,7 @@
                         <div class="placeholder">Loading image…</div>
                       {/if}
                     {:else if sourceFor(item)}
-                      <video preload="metadata" muted src={sourceFor(item)} playsinline></video>
+                      <video preload="metadata" controls muted src={sourceFor(item)} playsinline></video>
                     {:else}
                       <div class="placeholder">Loading video…</div>
                     {/if}
@@ -571,7 +660,7 @@
                   {#if item.type === "image" && sourceFor(item)}
                     <img loading="lazy" src={sourceFor(item)} alt={mediaName(item)} />
                   {:else if sourceFor(item)}
-                    <video preload="metadata" muted src={sourceFor(item)} playsinline></video>
+                    <video preload="metadata" controls muted src={sourceFor(item)} playsinline></video>
                   {:else}
                     <div class="placeholder">Loading…</div>
                   {/if}
@@ -737,7 +826,7 @@
 
   {#if selectedMedia}
     <div class="modal-backdrop" role="presentation" on:click={() => (selectedMedia = null)}>
-      <div class="media-modal" role="dialog" aria-modal="true" aria-label={mediaName(selectedMedia)} tabindex="-1">
+      <div class="media-modal" role="dialog" aria-modal="true" aria-label={mediaName(selectedMedia)} tabindex="-1" on:keydown={(e) => e.key === "Escape" && (selectedMedia = null)}>
         <button class="close-button" on:click={() => (selectedMedia = null)} aria-label="Close">×</button>
         <div class="modal-media">
           {#if selectedMedia.type === "image" && sourceFor(selectedMedia)}
@@ -825,8 +914,18 @@
           <p class="eyebrow">Profile</p>
           <h2>{appState.profile.loggedIn ? "Your archive profile" : "Create a simple profile"}</h2>
         </div>
-        <button class="close-button" on:click={() => (profileOpen = false)} aria-label="Close">×</button>
+        <button class="close-button" on:click={() => { profileOpen = false; }} aria-label="Close">×</button>
       </div>
+      {#if availableUsers.length > 0 && !appState.profile.loggedIn}
+        <p class="section-label">Switch profile</p>
+        <div class="user-list">
+          {#each availableUsers as user}
+            <button class="user-pill" on:click={() => switchUser(user.username)}>
+              <span class="user-name">{user.fullName || user.username}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
       <label>
         <span>Username</span>
         <input bind:value={profileUsername} placeholder="archivekeeper" />
