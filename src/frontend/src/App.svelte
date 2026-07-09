@@ -416,16 +416,15 @@
 
   async function switchUser(username: string) {
     try {
-      const users = await AvailableUsers();
-      const user = users.find(u => u.username === username);
-      if (user) {
-        profileUsername = user.username;
-        profileFullName = user.fullName;
-        // Set this user as active by saving with loggedIn=true
-        const profile = await SaveProfile(user.username, user.fullName);
-        appState = { ...appState, profile };
-        profileOpen = false;
-      }
+      // Refresh app state to activate this user (backend sets activeUserId)
+      appState = await GetFrontendState();
+      profileUsername = appState.profile.username ?? "";
+      profileFullName = appState.profile.fullName ?? "";
+      profileOpen = false;
+      // Reload platform data for the new user
+      mediaSources = {};
+      mediaLoading = {};
+      await loadPlatform(activePlatform);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     }

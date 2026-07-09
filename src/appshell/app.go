@@ -59,12 +59,14 @@ func (a *App) GetFrontendState() FrontendState {
 	profile := archive.Profile{}
 	if a.service != nil {
 		providers = a.service.ProviderCards()
-		// Use ActiveUser() for multi-user consistency; fall back to LoadProfile() if unavailable.
+		var userId int64 = 1
 		if p, err := a.service.ActiveUser(); err == nil && p != nil {
 			profile = *p
+			userId = p.ID
 		} else if loadedProfile, err := a.service.LoadProfile(); err == nil && loadedProfile != nil {
 			profile = *loadedProfile
 		}
+		a.service.SetActiveUser(userId)
 	}
 	return FrontendState{
 		Name:      "Mochila",

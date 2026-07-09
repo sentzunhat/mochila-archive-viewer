@@ -44,6 +44,7 @@ type Service struct {
 	providers []Provider
 	platforms map[string]*PlatformState
 	store     *Store
+	activeUserId int64
 }
 
 type JSONPreview struct {
@@ -78,7 +79,12 @@ func NewService() (*Service, error) {
 		},
 		platforms: make(map[string]*PlatformState),
 		store:     store,
+		activeUserId: 1,
 	}, nil
+}
+
+func (s *Service) SetActiveUser(userId int64) {
+	s.activeUserId = userId
 }
 
 func (s *Service) ProviderCards() []ProviderCard {
@@ -129,7 +135,7 @@ func (s *Service) SetSelectedArchives(platform string, paths []string) ([]Archiv
 	ps.Summary = nil
 	ps.Media = nil
 	ps.Conversations = nil
-	if err := s.store.SaveSelection(platform, ps.Selected); err != nil {
+	if err := s.store.SaveSelection(platform, s.activeUserId, ps.Selected); err != nil {
 		return nil, err
 	}
 	return append([]ArchiveFile(nil), ps.Selected...), nil
@@ -184,7 +190,7 @@ func (s *Service) IndexArchives(platform string) (*IndexSummary, error) {
 		return nil, err
 	}
 
-	if err := s.store.SaveSnapshot(platform, ps.Selected, idx, ps.Conversations); err != nil {
+	if err := s.store.SaveSnapshot(platform, s.activeUserId, ps.Selected, idx, ps.Conversations); err != nil {
 		return nil, err
 	}
 
@@ -217,7 +223,7 @@ func (s *Service) GetMedia(platform, year string) ([]snapchat.MediaItem, error) 
 	}
 	if ps.Index == nil {
 		if ps.Summary != nil {
-			return s.store.Media(platform, year)
+			return s.store.Media(platform, year, s.activeUserId)
 		}
 		return nil, ErrNotIndexed
 	}
@@ -241,7 +247,7 @@ func (s *Service) GetConversations(platform string) ([]snapchat.Conversation, er
 	}
 	if ps.Index == nil {
 		if ps.Summary != nil {
-			return s.store.Conversations(platform)
+			return s.store.Conversations(platform, s.activeUserId)
 		}
 		return nil, ErrNotIndexed
 	}
@@ -266,7 +272,7 @@ func (s *Service) JSONFiles(platform string) ([]snapchat.JsonFileRef, error) {
 	}
 	if ps.Index == nil {
 		if ps.Summary != nil {
-			return s.store.JSONFiles(platform)
+			return s.store.JSONFiles(platform, s.activeUserId)
 		}
 		return nil, ErrNotIndexed
 	}
@@ -281,7 +287,7 @@ func (s *Service) JSONPreview(platform string, ordinal int) (*JSONPreview, error
 
 	jsonFiles := ps.JsonFiles
 	if ps.Index == nil && ps.Summary != nil {
-		jsonFiles, err = s.store.JSONFiles(platform)
+		jsonFiles, err = s.store.JSONFiles(platform, s.activeUserId)
 		if err != nil {
 			return nil, err
 		}
@@ -403,7 +409,7 @@ func (s *Service) GetConversation(platform, id string) (*snapchat.Conversation, 
 		return nil, err
 	}
 	if ps.Summary != nil && ps.Index == nil {
-		return s.store.Conversation(platform, id)
+		return s.store.Conversation(platform, id, s.activeUserId)
 	}
 	for i, c := range ps.Conversations {
 		if c.ID == id {
@@ -454,7 +460,7 @@ func (s *Service) restorePlatform(id string, ps *PlatformState) error {
 		return nil
 	}
 
-	snapshot, err := s.store.LoadSnapshot(id)
+	snapshot, err := s.store.LoadSnapshot(id, s.activeUserId)
 	if err != nil {
 		return err
 	}
