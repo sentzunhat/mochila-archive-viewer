@@ -47,13 +47,21 @@ type Service struct {
 }
 
 type JSONPreview struct {
-	Entry       string   `json:"entry"`
-	Zip         string   `json:"zip"`
-	TopLevel    string   `json:"topLevel"`
-	Keys        []string `json:"keys"`
-	ItemCount   int      `json:"itemCount"`
-	PrettyJSON  string   `json:"prettyJson"`
-	StoragePath string   `json:"storagePath"`
+	Entry       string      `json:"entry"`
+	Zip         string      `json:"zip"`
+	TopLevel    string      `json:"topLevel"`
+	Keys        []string    `json:"keys"`
+	ItemCount   int         `json:"itemCount"`
+	PrettyJSON  string      `json:"prettyJson"`
+	StoragePath string      `json:"storagePath"`
+	ChildCounts []JSONChild `json:"childCounts,omitempty"`
+	SampleJSON  string      `json:"sampleJson,omitempty"`
+}
+
+type JSONChild struct {
+	Key     string `json:"key"`
+	Type    string `json:"type"`
+	Records *int   `json:"records,omitempty"`
 }
 
 func NewService() (*Service, error) {
@@ -344,6 +352,47 @@ func (s *Service) JSONPreview(platform string, ordinal int) (*JSONPreview, error
 		return nil, err
 	}
 	preview.PrettyJSON = string(pretty)
+
+	if val, ok := decoded.(map[string]any); ok {
+		for _, key := range preview.Keys {
+			childVal := val[key]
+			ctype := "unknown"
+			var records *int
+			switch v := childVal.(type) {
+			case []any:
+				ctype = "array"
+				n := len(v)
+				records = &n
+			case map[string]any:
+				ctype = "object"
+			default:
+				ctype = fmt.Sprintf("%T", v)
+			}
+			preview.ChildCounts = append(preview.ChildCounts, JSONChild{
+				Key:     key,
+				Type:    ctype,
+				Records: records,
+			})
+		}
+	}
+
+	// Sample data for structured preview
+	switch arr := decoded.(type) {
+	case []any:
+		if len(arr) < 20 {
+			preview.SampleJSON = string(pretty)
+		} else {
+			sample, err := json.MarshalIndent(arr[:20], "", "  ")
+			if err == nil {
+				preview.SampleJSON = string(sample) + "\n// ... truncated (" + fmt.Sprintf("%d", len(arr)) + " total)"
+			}
+		}
+	case map[string]any:
+		preview.SampleJSON = string(pretty)
+	default:
+		preview.SampleJSON = raw
+	}
+
 	return preview, nil
 }
 

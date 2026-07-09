@@ -65,6 +65,8 @@
     itemCount: number;
     prettyJson: string;
     storagePath: string;
+    childCounts?: { key: string; type: string; records?: number }[];
+    sampleJson?: string;
   };
   type PlatformSnapshot = { selected: ArchiveFile[]; summary: IndexSummary | null; media: MediaItem[]; jsonFiles: JsonFileRef[]; conversations: Conversation[] };
   type View = "gallery" | "today" | "messages" | "structure" | "data";
@@ -93,6 +95,7 @@
   let selectedMedia: MediaItem | null = null;
   let visibleLimit = 180;
   let mediaSources: Record<number, string> = {};
+  let mediaLoading: Record<number, "pending" | "resolved" | "failed"> = {};
   let profileOpen = false;
   let profileUsername = "";
   let profileFullName = "";
@@ -143,21 +146,57 @@
   }
 
   async function ensureMediaSources(items: MediaItem[]) {
-    const pending = items.filter((item) => !mediaSources[item.id]).slice(0, 60);
+    const pending = items.filter((item) => {
+      if (mediaSources[item.id]) return false;
+      if (mediaLoading[item.id] === "resolved") return false;
+      return true;
+    }).slice(0, 96);
     if (pending.length === 0) return;
 
     const updates: Record<number, string> = {};
+    // Mark all as pending first
+    for (const item of pending) {
+      mediaLoading[item.id] = "pending";
+    }
+    mediaLoading = { ...mediaLoading };
+
     await Promise.all(
       pending.map(async (item) => {
         try {
           const source = await GetMediaSource(activePlatform, item.id);
-          if (source) updates[item.id] = source;
+          if (source && source.length > 0) {
+            updates[item.id] = source;
+            mediaLoading[item.id] = "resolved";
+          } else {
+            mediaLoading[item.id] = "failed";
+          }
         } catch (caught) {
           error = caught instanceof Error ? caught.message : String(caught);
+          mediaLoading[item.id] = "failed";
         }
       }),
     );
     mediaSources = { ...mediaSources, ...updates };
+  }
+
+  async function retryFailedSources(items: MediaItem[]) {
+    const failed = items.filter((item) => mediaLoading[item.id] === "failed");
+    if (failed.length === 0) return;
+    for (const item of failed) {
+      try {
+        const source = await GetMediaSource(activePlatform, item.id);
+        if (source && source.length > 0) {
+          mediaSources[item.id] = source;
+          mediaLoading[item.id] = "resolved";
+        } else {
+          mediaLoading[item.id] = "failed";
+        }
+      } catch {
+        mediaLoading[item.id] = "failed";
+      }
+    }
+    mediaSources = { ...mediaSources };
+    mediaLoading = { ...mediaLoading };
   }
 
   async function loadPlatform(pid: string) {
