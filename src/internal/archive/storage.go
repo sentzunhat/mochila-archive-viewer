@@ -634,6 +634,25 @@ func (s *Store) LoadProfile() (*Profile, error) {
 	return &profile, nil
 }
 
+func (s *Store) GetProfileByID(id int64) (*Profile, error) {
+	var profile Profile
+	var loggedIn int
+	err := s.db.QueryRow(`
+		SELECT profile_id, username, full_name, logged_in
+		FROM profile
+		WHERE profile_id = ?
+		LIMIT 1
+	`, id).Scan(&profile.ID, &profile.Username, &profile.FullName, &loggedIn)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &Profile{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	profile.LoggedIn = loggedIn == 1
+	return &profile, nil
+}
+
 func (s *Store) SaveProfile(profile Profile) error {
 	// Check if profile already exists by username
 	var existingID int64

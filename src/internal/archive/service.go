@@ -87,6 +87,15 @@ func (s *Service) SetActiveUser(userId int64) {
 	s.activeUserId = userId
 }
 
+func (s *Service) SelectUser(userId int64) (*Profile, error) {
+	p, err := s.store.GetProfileByID(userId)
+	if err != nil || p.ID == 0 {
+		return &Profile{}, err
+	}
+	s.activeUserId = userId
+	return p, nil
+}
+
 func (s *Service) ProviderCards() []ProviderCard {
 	cards := make([]ProviderCard, 0, len(s.providers))
 	for _, p := range s.providers {

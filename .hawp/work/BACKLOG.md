@@ -31,6 +31,7 @@ Work was implemented before HAWP tracking was established. Backtracking for visi
 | 1   | done   | Stabilize archive viewer app                                            | [001](./closed/2025/07/09/001.md) | cfcd727 |
 | 2   | done   | Enhance JSON explorer with structured analysis and media loading states | [002](./closed/2025/07/09/002.md) | 7413f34 |
 | 3   | done   | Add search bar, settings page, optimize OnThisDay video                 | [003](./closed/2025/07/09/003.md) | c5af4df |
+| 10  | done   | Multi-user isolation — wire profile to indexed data                     | [010](./active/010.md)            | eb2c321 |
 
 ---
 
@@ -46,7 +47,7 @@ Items below are compoundable: each can be done independently or together as a ba
 | 7   | done        | Match POC UI structure in new Go implementation     | [active/007.md](./active/007.md) |
 | 8   | done        | Fix media source loading gaps across views          | [active/008.md](./active/008.md) |
 | 9   | parked      | Multi-platform provider scaffolding — investigate   | [active/009.md](./active/009.md) |
-| 10  | in-progress | Multi-user isolation — wire profile to indexed data | [active/010.md](./active/010.md) |
+| 10   | done        | Multi-user isolation — wire profile to indexed data | [active/010.md](./active/010.md) | [eb2c321](https://github.com/sentzunhat/mochila-archive-viewer/commit/eb2c321)
 
 ---
 

@@ -4,6 +4,7 @@
     GetFrontendState,
     ActiveUserProfile,
     AvailableUsers,
+    SelectUser,
     GetPlatformSnapshot,
     GetMedia,
     GetConversations,
@@ -17,7 +18,7 @@
   } from "../wailsjs/go/appshell/App.js";
 
   type ProviderCard = { id: string; name: string; status: string; description: string; supported: boolean };
-  type Profile = { username: string; fullName: string; loggedIn: boolean };
+  type Profile = { id: number; username: string; fullName: string; loggedIn: boolean };
   type FrontendState = { name: string; tagline: string; providers: ProviderCard[]; storePath: string; profile: Profile };
   type ArchiveFile = { path: string; name: string };
   type IndexSummary = {
@@ -103,7 +104,7 @@
   let settingsOpen = false;
   let profileUsername = "";
   let profileFullName = "";
-  let availableUsers: { username: string; fullName: string }[] = [];
+  let availableUsers: { id: number; username: string; fullName: string }[] = [];
   let searchInput: HTMLInputElement | undefined;
   let structureSection: StructureSection = "paths";
 
@@ -414,12 +415,12 @@
     }
   }
 
-  async function switchUser(username: string) {
+  async function switchUser(userId: number, username: string) {
     try {
-      // Refresh app state to activate this user (backend sets activeUserId)
-      appState = await GetFrontendState();
-      profileUsername = appState.profile.username ?? "";
-      profileFullName = appState.profile.fullName ?? "";
+      const profile = await SelectUser(userId);
+      appState = { ...appState, profile };
+      profileUsername = profile.username ?? "";
+      profileFullName = profile.fullName ?? "";
       profileOpen = false;
       // Reload platform data for the new user
       mediaSources = {};
@@ -915,12 +916,15 @@
         </div>
         <button class="close-button" on:click={() => { profileOpen = false; }} aria-label="Close">×</button>
       </div>
-      {#if availableUsers.length > 0 && !appState.profile.loggedIn}
+      {#if availableUsers.length > 0}
         <p class="section-label">Switch profile</p>
         <div class="user-list">
           {#each availableUsers as user}
-            <button class="user-pill" on:click={() => switchUser(user.username)}>
+            <button class="user-pill" on:click={() => switchUser(user.id, user.username)}>
               <span class="user-name">{user.fullName || user.username}</span>
+              {#if appState.profile.id === user.id && appState.profile.loggedIn}
+                <span class="current-badge">you</span>
+              {/if}
             </button>
           {/each}
         </div>
@@ -936,6 +940,7 @@
       <div class="profile-actions">
         <button class="load-more" on:click={saveProfileForm}>Save profile</button>
         {#if appState.profile.loggedIn}
+          <button class="secondary-button" on:click={() => { profileUsername = ""; profileFullName = ""; }}>New profile</button>
           <button class="secondary-button" on:click={logoutProfile}>Logout</button>
         {/if}
       </div>

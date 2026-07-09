@@ -228,6 +228,14 @@ func (a *App) AvailableUsers() ([]archive.UserEntry, error) {
 	return a.service.AvailableUsers()
 }
 
+// SelectUser activates a specific user by ID for scoped data access.
+func (a *App) SelectUser(id int64) (*archive.Profile, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	return a.service.SelectUser(id)
+}
+
 // ServeHTTP handles /media/{platform}/{id} requests from the webview.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// path: /media/{platform}/{id}
