@@ -94,9 +94,11 @@
   let jsonPreview: JSONPreview | null = null;
   let selectedMedia: MediaItem | null = null;
   let visibleLimit = 180;
+  let searchQuery = "";
   let mediaSources: Record<number, string> = {};
   let mediaLoading: Record<number, "pending" | "resolved" | "failed"> = {};
   let profileOpen = false;
+  let settingsOpen = false;
   let profileUsername = "";
   let profileFullName = "";
   let structureSection: StructureSection = "paths";
@@ -118,7 +120,10 @@
     if (selectedType !== "all" && item.type !== selectedType) return false;
     return true;
   });
-  $: visibleMedia = filteredMedia.slice(0, visibleLimit);
+  $: searchableMedia = searchQuery
+    ? filteredMedia.filter(m => m.entry.toLowerCase().includes(searchQuery.toLowerCase()) || m.category.toLowerCase().includes(searchQuery.toLowerCase()) || m.date.includes(searchQuery))
+    : filteredMedia;
+  $: visibleMedia = searchableMedia.slice(0, visibleLimit);
   $: onThisDayMedia = media.filter((item) => item.date.slice(5, 10) === todayKey);
   $: selectedConversation =
     conversations.find((conversation) => conversation.id === selectedConversationId) ??
@@ -418,6 +423,7 @@
         <button on:click={pickZips} disabled={selecting}>
           {selecting ? "Opening..." : "Add zips"}
         </button>
+        <button on:click={() => (settingsOpen = true)}>⚙ Settings</button>
         <button on:click={() => (profileOpen = true)}>
           {appState.profile.loggedIn ? (appState.profile.fullName || appState.profile.username) : "Profile"}
         </button>
@@ -451,6 +457,13 @@
 
     {#if view === "gallery"}
       <section class="controls" aria-label="Gallery filters">
+        <div class="search-box">
+          <input type="text" placeholder="Search files, categories, dates..." bind:value={searchQuery} />
+          {#if searchQuery}
+            <button class="clear-search" on:click={() => (searchQuery = "")}>×</button>
+          {/if}
+        </div>
+
         <label>
           <span>Year</span>
           <select bind:value={selectedYear} on:change={() => setYear(selectedYear)}>
@@ -519,7 +532,7 @@
                         <div class="placeholder">Loading image…</div>
                       {/if}
                     {:else if sourceFor(item)}
-                      <video preload="metadata" muted src={sourceFor(item)}></video>
+                      <video preload="metadata" muted src={sourceFor(item)} playsinline></video>
                     {:else}
                       <div class="placeholder">Loading video…</div>
                     {/if}
@@ -558,7 +571,7 @@
                   {#if item.type === "image" && sourceFor(item)}
                     <img loading="lazy" src={sourceFor(item)} alt={mediaName(item)} />
                   {:else if sourceFor(item)}
-                    <video preload="metadata" muted src={sourceFor(item)}></video>
+                    <video preload="metadata" muted src={sourceFor(item)} playsinline></video>
                   {:else}
                     <div class="placeholder">Loading…</div>
                   {/if}
@@ -750,6 +763,58 @@
       </div>
     </div>
   {/if}
+{/if}
+
+
+{#if settingsOpen}
+  <div class="modal-backdrop" role="presentation" on:click={() => (settingsOpen = false)}>
+    <div class="settings-modal" role="dialog" aria-modal="true" on:click|stopPropagation on:keydown|stopPropagation>
+      <div class="settings-head">
+        <div>
+          <p class="eyebrow">Settings</p>
+          <h2>Application preferences</h2>
+        </div>
+        <button class="close-button" on:click={() => (settingsOpen = false)} aria-label="Close">×</button>
+      </div>
+      
+      <section class="settings-section">
+        <h3>About</h3>
+        <dl class="settings-list">
+          <div><dt>Version</dt><dd>Mochila v1.0.0</dd></div>
+          <div><dt>Backend</dt><dd>Go 1.26 with Wails v2</dd></div>
+          <div><dt>Storage</dt><dd>{appState.storePath || "~/.mochila/database.sqlite"}</dd></div>
+        </dl>
+      </section>
+      
+      <section class="settings-section">
+        <h3>Data Management</h3>
+        <dl class="settings-list">
+          <div><dt>Total media items</dt><dd>{summary ? formatter.format(summary.mediaCount) : "N/A"}</dd></div>
+          <div><dt>Archive files indexed</dt><dd>{summary ? summary.zipCount : 0}</dd></div>
+          <div><dt>Conversations</dt><dd>{formatter.format(conversations.length)}</dd></div>
+        </dl>
+        <p class="settings-hint">Indexed data is stored locally in SQLite.</p>
+      </section>
+
+      <section class="settings-section">
+        <h3>Display</h3>
+        <dl class="settings-list">
+          <div><dt>Media batch size</dt><dd>{visibleLimit} items per load</dd></div>
+          <div><dt>Cached sources</dt><dd>{Object.keys(mediaSources).length} media items pre-loaded</dd></div>
+        </dl>
+      </section>
+
+      <div class="settings-actions">
+        <button class="secondary-button" on:click={() => {
+          if (confirm("Clear all media cache? This will re-download media on next visit.")) {
+            mediaSources = {};
+            mediaLoading = {};
+            settingsOpen = false;
+          }
+        }}>Clear media cache</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 {#if profileOpen}
