@@ -1,15 +1,15 @@
 package archive
 
-import "mochila-archive-viewer/src/internal/providers/snapchat"
+import "mochila-archive-viewer/src/internal/types"
 
 // PlatformState holds the indexed data for one provider session.
 type PlatformState struct {
 	Selected      []ArchiveFile
-	Index         *snapchat.Index
+	Index         *types.Index
 	Summary       *IndexSummary
-	Media         []snapchat.MediaItem
-	JsonFiles     []snapchat.JsonFileRef
-	Conversations []snapchat.Conversation
+	Media         []types.MediaItem
+	JsonFiles     []types.JsonFileRef
+	Conversations []types.Conversation
 	Loaded        bool
 }
 

@@ -1,0 +1,77 @@
+name: HAWP CLI PoC Binaries
+
+on:
+    workflow_dispatch:
+    pull_request:
+        branches:
+            - main
+            - dev
+        paths:
+            - librarian/scripts/hawp-cli-poc/**
+            - librarian/package.json
+            - librarian/package-lock.json
+            - .nvmrc
+            - .github/workflows/hawp-cli-poc-binaries.yml
+
+jobs:
+    build:
+        name: Build ${{ matrix.target }}
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: linux-x64
+                      runner: ubuntu-latest
+                    - target: linux-arm64
+                      runner: ubuntu-24.04-arm
+                    - target: darwin-x64
+                      runner: macos-13
+                    - target: darwin-arm64
+                      runner: macos-14
+                    - target: win32-x64
+                      runner: windows-latest
+                    - target: win32-arm64
+                      runner: windows-11-arm
+
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+                  cache-dependency-path: librarian/package-lock.json
+
+            - name: Show Node and npm versions
+              run: node -v && npm -v
+
+            - name: Install librarian dependencies
+              run: npm ci
+              working-directory: librarian
+
+            - name: Build target binary
+              run: npm run cli:poc:binaries -- --target ${{ matrix.target }}
+              working-directory: librarian
+
+            - name: Smoke test target binary
+              if: runner.os != 'Windows'
+              run: ./build-bin/releases/hawp-poc-${{ matrix.target }} --help
+              working-directory: librarian
+
+            - name: Smoke test Windows target binary
+              if: runner.os == 'Windows'
+              run: .\build-bin\releases\hawp-poc-${{ matrix.target }}.exe --help
+              working-directory: librarian
+
+            - name: Upload binary artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: hawp-poc-${{ matrix.target }}
+                  path: |
+                      librarian/build-bin/releases/*
+                      librarian/build-bin/binary-manifest.json
+                      librarian/build-bin/sea/*.sea.json
+                  if-no-files-found: error

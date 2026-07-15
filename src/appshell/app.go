@@ -12,6 +12,7 @@ import (
 
 	"mochila-archive-viewer/src/internal/archive"
 	"mochila-archive-viewer/src/internal/providers/snapchat"
+	"mochila-archive-viewer/src/internal/types"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -33,9 +34,9 @@ type FrontendState struct {
 type PlatformSnapshot struct {
 	Selected      []archive.ArchiveFile   `json:"selected"`
 	Summary       *archive.IndexSummary   `json:"summary"`
-	Media         []snapchat.MediaItem    `json:"media"`
-	JsonFiles     []snapchat.JsonFileRef  `json:"jsonFiles"`
-	Conversations []snapchat.Conversation `json:"conversations"`
+	Media         []types.MediaItem    `json:"media"`
+	JsonFiles     []types.JsonFileRef  `json:"jsonFiles"`
+	Conversations []types.Conversation `json:"conversations"`
 }
 
 func NewApp() *App {
@@ -133,6 +134,19 @@ func (a *App) SelectArchiveZips(platform string) ([]archive.ArchiveFile, error) 
 	return a.service.SetSelectedArchives(platform, paths)
 }
 
+// SetArchiveZipsDirect assigns zip file paths to a platform without opening a dialog.
+// Useful for testing in Wails dev mode where native dialogs may hang.
+func (a *App) SetArchiveZipsDirect(platform string, pathsStr string) ([]archive.ArchiveFile, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	paths := strings.Split(pathsStr, ",")
+	for i, p := range paths {
+		paths[i] = strings.TrimSpace(p)
+	}
+	return a.service.SetSelectedArchives(platform, paths)
+}
+
 // SelectedArchives returns the selected zips for a platform.
 func (a *App) SelectedArchives(platform string) ([]archive.ArchiveFile, error) {
 	if a.initErr != nil {
@@ -150,15 +164,74 @@ func (a *App) IndexArchives(platform string) (*archive.IndexSummary, error) {
 }
 
 // GetMedia returns media items for a platform, filtered by year ("" or "all" = all years).
-func (a *App) GetMedia(platform, year string) ([]snapchat.MediaItem, error) {
+func (a *App) GetMedia(platform, year string) ([]types.MediaItem, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
 	return a.service.GetMedia(platform, year)
 }
 
+// GetMediaPaginated returns a page of media items from the store.
+func (a *App) GetMediaPaginated(platform, year string, offset, limit int64) ([]types.MediaItem, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	return a.service.GetMediaPaginated(platform, year, offset, limit)
+}
+
+// GetMediaCount returns the total count of media items for a platform.
+func (a *App) GetMediaCount(platform, year string) (int64, error) {
+	if a.initErr != nil {
+		return 0, a.initErr
+	}
+	return a.service.GetMediaCount(platform, year)
+}
+
+// AppSettings holds frontend preferences persisted per-user.
+type AppSettings struct {
+	Pagesize   int `json:"pageSize"`
+	Homedir    string
+	ProfileID  int64 `json:"profileId"`
+	LoggedIn   bool  `json:"loggedIn"`
+}
+
+var appSettings = &AppSettings{Pagesize: 180, ProfileID: 1, LoggedIn: false}
+
+// GetAppSettings returns the current application settings.
+func (a *App) GetAppSettings() (*AppSettings, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	appSettings.Homedir = appSettings.Homedir
+	return appSettings, nil
+}
+
+// SaveAppSettings persists application settings.
+func (a *App) SaveAppSettings(settings AppSettings) (*AppSettings, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	appSettings.Pagesize = settings.Pagesize
+	appSettings.ProfileID = settings.ProfileID
+	appSettings.LoggedIn = settings.LoggedIn
+	if appSettings.Pagesize < 30 {
+		appSettings.Pagesize = 30
+	} else if appSettings.Pagesize > 500 {
+		appSettings.Pagesize = 500
+	}
+	return appSettings, nil
+}
+
+// GetPlatformStats returns platform statistics for the dashboard.
+func (a *App) GetPlatformStats(platform string) (*archive.PlatformStats, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	return a.service.GetPlatformStats(platform)
+}
+
 // GetConversations returns the conversation list for a platform.
-func (a *App) GetConversations(platform string) ([]snapchat.Conversation, error) {
+func (a *App) GetConversations(platform string) ([]types.Conversation, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
@@ -166,14 +239,14 @@ func (a *App) GetConversations(platform string) ([]snapchat.Conversation, error)
 }
 
 // GetConversation returns a full conversation with messages.
-func (a *App) GetConversation(platform, id string) (*snapchat.Conversation, error) {
+func (a *App) GetConversation(platform, id string) (*types.Conversation, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
 	return a.service.GetConversation(platform, id)
 }
 
-func (a *App) GetJSONFiles(platform string) ([]snapchat.JsonFileRef, error) {
+func (a *App) GetJSONFiles(platform string) ([]types.JsonFileRef, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
 	}

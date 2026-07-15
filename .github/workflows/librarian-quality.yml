@@ -1,0 +1,55 @@
+name: Librarian Quality
+
+on:
+    push:
+        branches:
+            - main
+            - dev
+        paths:
+            - librarian/**
+            - .hawp/work/**
+            - .nvmrc
+            - .github/workflows/librarian-quality.yml
+    pull_request:
+        branches:
+            - main
+            - dev
+        paths:
+            - librarian/**
+            - .hawp/work/**
+            - .nvmrc
+            - .github/workflows/librarian-quality.yml
+
+jobs:
+    quality:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+                  cache-dependency-path: librarian/package-lock.json
+
+            - name: Show Node and npm versions
+              run: node -v && npm -v
+
+            - name: Install librarian dependencies
+              run: npm ci
+              working-directory: librarian
+
+            - name: Typecheck
+              run: npm run typecheck
+              working-directory: librarian
+
+            - name: Unit tests
+              run: npm test
+              working-directory: librarian
+
+            - name: Validate HAWP workflow state
+              run: npm run work:validate
+              working-directory: librarian

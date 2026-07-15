@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"mochila-archive-viewer/src/internal/providers/snapchat"
+	"mochila-archive-viewer/src/internal/types"
 
 	_ "modernc.org/sqlite"
 )
@@ -19,9 +19,9 @@ const sqliteDriver = "sqlite"
 type Snapshot struct {
 	Selected      []ArchiveFile
 	Summary       *IndexSummary
-	Media         []snapchat.MediaItem
-	JsonFiles     []snapchat.JsonFileRef
-	Conversations []snapchat.Conversation
+	Media         []types.MediaItem
+	JsonFiles     []types.JsonFileRef
+	Conversations []types.Conversation
 }
 
 type Profile struct {
@@ -99,7 +99,7 @@ func (s *Store) ProviderSnapshotPath(platform string) string {
 	return filepath.Join(s.ProviderRoot(platform), "snapshot.json")
 }
 
-func (s *Store) SaveSnapshot(platform string, userId int64, selected []ArchiveFile, idx *snapchat.Index, conversations []snapchat.Conversation) error {
+func (s *Store) SaveSnapshot(platform string, userId int64, selected []ArchiveFile, idx *types.Index, conversations []types.Conversation) error {
 	if idx == nil {
 		return errors.New("cannot save empty archive index")
 	}
@@ -126,7 +126,7 @@ func (s *Store) SaveSnapshot(platform string, userId int64, selected []ArchiveFi
 
 	for i, file := range selected {
 		if _, err := tx.Exec(`
-			INSERT INTO archive_files(platform, user_id, ordinal, path, name)
+			INSERT OR REPLACE INTO archive_files(platform, user_id, ordinal, path, name)
 			VALUES (?, ?, ?, ?, ?)
 		`, platform, userId, i, file.Path, file.Name); err != nil {
 			return err
@@ -135,7 +135,7 @@ func (s *Store) SaveSnapshot(platform string, userId int64, selected []ArchiveFi
 
 	for _, item := range idx.Media {
 		if _, err := tx.Exec(`
-			INSERT INTO media_items(platform, user_id, media_id, zip_index, zip, entry, category, date, year, type, ext, local_path)
+			INSERT OR REPLACE INTO media_items(platform, user_id, media_id, zip_index, zip, entry, category, date, year, type, ext, local_path)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, platform, userId, item.ID, item.ZipIndex, item.Zip, item.Entry, item.Category, item.Date, item.Year, item.Type, item.Ext, item.LocalPath); err != nil {
 			return err
@@ -144,7 +144,7 @@ func (s *Store) SaveSnapshot(platform string, userId int64, selected []ArchiveFi
 
 	for ordinal, item := range idx.JsonFiles {
 		if _, err := tx.Exec(`
-			INSERT INTO json_files(platform, user_id, ordinal, zip_index, zip, entry)
+			INSERT OR REPLACE INTO json_files(platform, user_id, ordinal, zip_index, zip, entry)
 			VALUES (?, ?, ?, ?, ?, ?)
 		`, platform, userId, ordinal, item.ZipIndex, item.Zip, item.Entry); err != nil {
 			return err
@@ -153,7 +153,7 @@ func (s *Store) SaveSnapshot(platform string, userId int64, selected []ArchiveFi
 
 	for _, convo := range conversations {
 		if _, err := tx.Exec(`
-			INSERT INTO conversations(platform, user_id, conversation_id, title, message_count, saved_count, media_count, last_created)
+			INSERT OR REPLACE INTO conversations(platform, user_id, conversation_id, title, message_count, saved_count, media_count, last_created)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		`, platform, userId, convo.ID, convo.Title, convo.MessageCount, convo.SavedCount, convo.MediaCount, convo.LastCreated); err != nil {
 			return err
@@ -161,7 +161,7 @@ func (s *Store) SaveSnapshot(platform string, userId int64, selected []ArchiveFi
 
 		for ordinal, msg := range convo.Messages {
 			if _, err := tx.Exec(`
-				INSERT INTO messages(platform, user_id, conversation_id, ordinal, from_name, content, media_type, created, is_sender, is_saved, media_ids)
+				INSERT OR REPLACE INTO messages(platform, user_id, conversation_id, ordinal, from_name, content, media_type, created, is_sender, is_saved, media_ids)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`, platform, userId, convo.ID, ordinal, msg.From, msg.Content, msg.MediaType, msg.Created, boolToInt(msg.IsSender), boolToInt(msg.IsSaved), msg.MediaIDs); err != nil {
 				return err
@@ -179,13 +179,10 @@ func (s *Store) SaveSelection(platform string, userId int64, selected []ArchiveF
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`DELETE FROM archive_files WHERE platform = ? AND user_id = ?`, platform, userId); err != nil {
-		return err
-	}
-
+	// Use INSERT OR REPLACE to handle old schema PKs that lack user_id in the key.
 	for i, file := range selected {
 		if _, err := tx.Exec(`
-			INSERT INTO archive_files(platform, user_id, ordinal, path, name)
+			INSERT OR REPLACE INTO archive_files(platform, user_id, ordinal, path, name)
 			VALUES (?, ?, ?, ?, ?)
 		`, platform, userId, i, file.Path, file.Name); err != nil {
 			return err
@@ -239,19 +236,19 @@ func (s *Store) Summary(platform string, userId int64) (*IndexSummary, error) {
 	return s.loadSummary(platform, userId)
 }
 
-func (s *Store) Media(platform, year string, userId int64) ([]snapchat.MediaItem, error) {
+func (s *Store) Media(platform, year string, userId int64) ([]types.MediaItem, error) {
 	return s.loadMedia(platform, year, userId)
 }
 
-func (s *Store) Conversations(platform string, userId int64) ([]snapchat.Conversation, error) {
+func (s *Store) Conversations(platform string, userId int64) ([]types.Conversation, error) {
 	return s.loadConversations(platform, false, userId)
 }
 
-func (s *Store) JSONFiles(platform string, userId int64) ([]snapchat.JsonFileRef, error) {
+func (s *Store) JSONFiles(platform string, userId int64) ([]types.JsonFileRef, error) {
 	return s.loadJSONFiles(platform, userId)
 }
 
-func (s *Store) Conversation(platform, id string, userId int64) (*snapchat.Conversation, error) {
+func (s *Store) Conversation(platform, id string, userId int64) (*types.Conversation, error) {
 	convos, err := s.loadConversations(platform, true, userId)
 	if err != nil {
 		return nil, err
@@ -488,7 +485,7 @@ func (s *Store) loadGroupedCounts(platform, field string, userId int64) (map[str
 	return out, rows.Err()
 }
 
-func (s *Store) loadMedia(platform, year string, userId int64) ([]snapchat.MediaItem, error) {
+func (s *Store) loadMedia(platform, year string, userId int64) ([]types.MediaItem, error) {
 	query := `
 		SELECT media_id, zip_index, zip, entry, category, date, year, type, ext, local_path
 		FROM media_items
@@ -507,9 +504,9 @@ func (s *Store) loadMedia(platform, year string, userId int64) ([]snapchat.Media
 	}
 	defer rows.Close()
 
-	out := []snapchat.MediaItem{}
+	out := []types.MediaItem{}
 	for rows.Next() {
-		var item snapchat.MediaItem
+		var item types.MediaItem
 		if err := rows.Scan(&item.ID, &item.ZipIndex, &item.Zip, &item.Entry, &item.Category, &item.Date, &item.Year, &item.Type, &item.Ext, &item.LocalPath); err != nil {
 			return nil, err
 		}
@@ -518,7 +515,107 @@ func (s *Store) loadMedia(platform, year string, userId int64) ([]snapchat.Media
 	return out, rows.Err()
 }
 
-func (s *Store) loadJSONFiles(platform string, userId int64) ([]snapchat.JsonFileRef, error) {
+// MediaPaginated returns a page of media items for a platform, filtered by year.
+func (s *Store) MediaPaginated(platform, year string, userId, offset, limit int64) ([]types.MediaItem, error) {
+	query := `
+		SELECT media_id, zip_index, zip, entry, category, date, year, type, ext, local_path
+		FROM media_items
+		WHERE platform = ? AND user_id = ?
+	`
+	args := []any{platform, userId}
+	if year != "" && year != "all" {
+		query += " AND year = ?"
+		args = append(args, year)
+	}
+	query += fmt.Sprintf(" ORDER BY media_id LIMIT %d OFFSET %d", limit, offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []types.MediaItem{}
+	for rows.Next() {
+		var item types.MediaItem
+		if err := rows.Scan(&item.ID, &item.ZipIndex, &item.Zip, &item.Entry, &item.Category, &item.Date, &item.Year, &item.Type, &item.Ext, &item.LocalPath); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// MediaCount returns the total count of media items for a platform, optionally filtered by year.
+func (s *Store) MediaCount(platform, year string, userId int64) (int64, error) {
+	query := `SELECT COUNT(*) FROM media_items WHERE platform = ? AND user_id = ?`
+	args := []any{platform, userId}
+	if year != "" && year != "all" {
+		query += " AND year = ?"
+		args = append(args, year)
+	}
+
+	var count int64
+	err := s.db.QueryRow(query, args...).Scan(&count)
+	return count, err
+}
+
+type PlatformStats struct {
+	Platform      string `json:"platform"`
+	MediaCount    int64  `json:"mediaCount"`
+	ZipCount      int64  `json:"zipCount"`
+	ConversationCount int64 `json:"conversationCount"`
+	JsonFileCount   int64 `json:"jsonFileCount"`
+	ImageCount      int64 `json:"imageCount"`
+	VideoCount      int64 `json:"videoCount"`
+	YearsFound      int    `json:"yearsFound"`
+}
+
+func (s *Store) PlatformStats(platform string, userId int64) (*PlatformStats, error) {
+	var mediaCount, zipCount, convCount, jsonCount int64
+	rows, err := s.db.Query(`
+		SELECT COALESCE(SUM(m.image_count),0), COALESCE(SUM(m.video_count),0)
+		FROM (
+			SELECT 'image' as mt, COUNT(*) as image_count, 0 as video_count
+			FROM media_items WHERE platform=? AND user_id=? AND type='image'
+			UNION ALL
+			SELECT 'video', 0, COUNT(*)
+			FROM media_items WHERE platform=? AND user_id=? AND type='video'
+		) m
+	`, platform, userId, platform, userId)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var imgCnt, vidCnt int64
+		if err := rows.Scan(&imgCnt, &vidCnt); err != nil {
+			continue
+		}
+		mediaCount = imgCnt + vidCnt
+		break
+	}
+	rows.Close()
+
+	s.db.QueryRow(`SELECT COUNT(*) FROM archive_files WHERE platform=? AND user_id=?`, platform, userId).Scan(&zipCount)
+	s.db.QueryRow(`SELECT COUNT(DISTINCT conversation_id) FROM conversations WHERE platform=? AND user_id=?`, platform, userId).Scan(&convCount)
+	s.db.QueryRow(`SELECT COUNT(*) FROM json_files WHERE platform=? AND user_id=?`, platform, userId).Scan(&jsonCount)
+
+	var yearsFound int
+	s.db.QueryRow(`SELECT COUNT(DISTINCT year) FROM media_items WHERE platform=? AND user_id=? AND year!='unknown'`, platform, userId).Scan(&yearsFound)
+
+	return &PlatformStats{
+		Platform:         platform,
+		MediaCount:       mediaCount,
+		ZipCount:         zipCount,
+		ConversationCount: convCount,
+		JsonFileCount:    jsonCount,
+		ImageCount:       0, // counted above
+		VideoCount:       0,
+		YearsFound:       yearsFound,
+	}, nil
+}
+
+func (s *Store) loadJSONFiles(platform string, userId int64) ([]types.JsonFileRef, error) {
 	rows, err := s.db.Query(`
 		SELECT zip_index, zip, entry
 		FROM json_files
@@ -530,9 +627,9 @@ func (s *Store) loadJSONFiles(platform string, userId int64) ([]snapchat.JsonFil
 	}
 	defer rows.Close()
 
-	out := []snapchat.JsonFileRef{}
+	out := []types.JsonFileRef{}
 	for rows.Next() {
-		var item snapchat.JsonFileRef
+		var item types.JsonFileRef
 		if err := rows.Scan(&item.ZipIndex, &item.Zip, &item.Entry); err != nil {
 			return nil, err
 		}
@@ -541,7 +638,7 @@ func (s *Store) loadJSONFiles(platform string, userId int64) ([]snapchat.JsonFil
 	return out, rows.Err()
 }
 
-func (s *Store) loadConversations(platform string, includeMessages bool, userId int64) ([]snapchat.Conversation, error) {
+func (s *Store) loadConversations(platform string, includeMessages bool, userId int64) ([]types.Conversation, error) {
 	rows, err := s.db.Query(`
 		SELECT conversation_id, title, message_count, saved_count, media_count, last_created
 		FROM conversations
@@ -553,9 +650,9 @@ func (s *Store) loadConversations(platform string, includeMessages bool, userId 
 	}
 	defer rows.Close()
 
-	out := []snapchat.Conversation{}
+	out := []types.Conversation{}
 	for rows.Next() {
-		var convo snapchat.Conversation
+		var convo types.Conversation
 		if err := rows.Scan(&convo.ID, &convo.Title, &convo.MessageCount, &convo.SavedCount, &convo.MediaCount, &convo.LastCreated); err != nil {
 			return nil, err
 		}
@@ -570,7 +667,7 @@ func (s *Store) loadConversations(platform string, includeMessages bool, userId 
 	return out, rows.Err()
 }
 
-func (s *Store) loadMessages(platform, conversationID string, userId int64) ([]snapchat.ChatMessage, error) {
+func (s *Store) loadMessages(platform, conversationID string, userId int64) ([]types.ChatMessage, error) {
 	rows, err := s.db.Query(`
 		SELECT from_name, content, media_type, created, is_sender, is_saved, media_ids
 		FROM messages
@@ -582,9 +679,9 @@ func (s *Store) loadMessages(platform, conversationID string, userId int64) ([]s
 	}
 	defer rows.Close()
 
-	out := []snapchat.ChatMessage{}
+	out := []types.ChatMessage{}
 	for rows.Next() {
-		var msg snapchat.ChatMessage
+		var msg types.ChatMessage
 		var isSender, isSaved int
 		if err := rows.Scan(&msg.From, &msg.Content, &msg.MediaType, &msg.Created, &isSender, &isSaved, &msg.MediaIDs); err != nil {
 			return nil, err

@@ -12,6 +12,7 @@ import (
 	"mochila-archive-viewer/src/internal/providers/facebook"
 	"mochila-archive-viewer/src/internal/providers/instagram"
 	"mochila-archive-viewer/src/internal/providers/snapchat"
+	"mochila-archive-viewer/src/internal/types"
 )
 
 var ErrPlatformNotSupported = errors.New("platform not yet supported")
@@ -225,7 +226,7 @@ func (s *Service) IndexArchives(platform string) (*IndexSummary, error) {
 }
 
 // GetMedia returns media items for a platform, optionally filtered by year.
-func (s *Service) GetMedia(platform, year string) ([]snapchat.MediaItem, error) {
+func (s *Service) GetMedia(platform, year string) ([]types.MediaItem, error) {
 	ps, err := s.platform(platform)
 	if err != nil {
 		return nil, err
@@ -239,7 +240,7 @@ func (s *Service) GetMedia(platform, year string) ([]snapchat.MediaItem, error) 
 	if year == "" || year == "all" {
 		return ps.Index.Media, nil
 	}
-	out := make([]snapchat.MediaItem, 0)
+	out := make([]types.MediaItem, 0)
 	for _, m := range ps.Index.Media {
 		if m.Year == year {
 			out = append(out, m)
@@ -248,8 +249,48 @@ func (s *Service) GetMedia(platform, year string) ([]snapchat.MediaItem, error) 
 	return out, nil
 }
 
+// GetMediaPaginated returns a page of media items from the store.
+func (s *Service) GetMediaPaginated(platform, year string, offset, limit int64) ([]types.MediaItem, error) {
+	return s.store.MediaPaginated(platform, year, s.activeUserId, offset, limit)
+}
+
+// GetMediaCount returns the total count of media items for a platform.
+func (s *Service) GetMediaCount(platform, year string) (int64, error) {
+	return s.store.MediaCount(platform, year, s.activeUserId)
+}
+
+// GetPlatformStats returns aggregate statistics for a platform.
+func (s *Service) GetPlatformStats(platform string) (*PlatformStats, error) {
+	stats, err := s.store.PlatformStats(platform, s.activeUserId)
+	if err != nil {
+		return nil, err
+	}
+	var imgCount, vidCount int64
+	rows, err := s.store.db.Query(`
+		SELECT COUNT(*) FROM media_items WHERE platform=? AND user_id=? AND type='image'
+		UNION ALL SELECT COUNT(*) FROM media_items WHERE platform=? AND user_id=? AND type='video'
+	`, platform, s.activeUserId, platform, s.activeUserId)
+	if err == nil {
+		var first bool
+		for rows.Next() {
+			var c int64
+			rows.Scan(&c)
+			if !first {
+				imgCount = c
+				first = true
+			} else {
+				vidCount = c
+			}
+		}
+		rows.Close()
+	}
+	stats.ImageCount = imgCount
+	stats.VideoCount = vidCount
+	return stats, nil
+}
+
 // GetConversations returns the conversation list (no message bodies) for a platform.
-func (s *Service) GetConversations(platform string) ([]snapchat.Conversation, error) {
+func (s *Service) GetConversations(platform string) ([]types.Conversation, error) {
 	ps, err := s.platform(platform)
 	if err != nil {
 		return nil, err
@@ -260,21 +301,14 @@ func (s *Service) GetConversations(platform string) ([]snapchat.Conversation, er
 		}
 		return nil, ErrNotIndexed
 	}
-	out := make([]snapchat.Conversation, 0, len(ps.Conversations))
+	out := make([]types.Conversation, 0, len(ps.Conversations))
 	for _, c := range ps.Conversations {
-		out = append(out, snapchat.Conversation{
-			ID:           c.ID,
-			Title:        c.Title,
-			MessageCount: c.MessageCount,
-			SavedCount:   c.SavedCount,
-			MediaCount:   c.MediaCount,
-			LastCreated:  c.LastCreated,
-		})
+		out = append(out, c)
 	}
 	return out, nil
 }
 
-func (s *Service) JSONFiles(platform string) ([]snapchat.JsonFileRef, error) {
+func (s *Service) JSONFiles(platform string) ([]types.JsonFileRef, error) {
 	ps, err := s.platform(platform)
 	if err != nil {
 		return nil, err
@@ -285,7 +319,7 @@ func (s *Service) JSONFiles(platform string) ([]snapchat.JsonFileRef, error) {
 		}
 		return nil, ErrNotIndexed
 	}
-	return append([]snapchat.JsonFileRef(nil), ps.JsonFiles...), nil
+	return append([]types.JsonFileRef(nil), ps.JsonFiles...), nil
 }
 
 func (s *Service) JSONPreview(platform string, ordinal int) (*JSONPreview, error) {
@@ -412,7 +446,7 @@ func (s *Service) JSONPreview(platform string, ordinal int) (*JSONPreview, error
 }
 
 // GetConversation returns a full conversation with messages for a platform.
-func (s *Service) GetConversation(platform, id string) (*snapchat.Conversation, error) {
+func (s *Service) GetConversation(platform, id string) (*types.Conversation, error) {
 	ps, err := s.platform(platform)
 	if err != nil {
 		return nil, err
@@ -429,7 +463,7 @@ func (s *Service) GetConversation(platform, id string) (*snapchat.Conversation, 
 }
 
 // MediaItem looks up a media item by ID within a platform's index.
-func (s *Service) MediaItem(platform string, id int) *snapchat.MediaItem {
+func (s *Service) MediaItem(platform string, id int) *types.MediaItem {
 	ps := s.platforms[platform]
 	if ps == nil || id < 0 {
 		return nil
@@ -454,7 +488,7 @@ func (s *Service) ZipPath(platform string, zipIndex int) string {
 	return ps.Selected[zipIndex].Path
 }
 
-func findJsonEntry(idx *snapchat.Index, entry string) *snapchat.JsonFileRef {
+func findJsonEntry(idx *types.Index, entry string) *types.JsonFileRef {
 	for i, f := range idx.JsonFiles {
 		if f.Entry == entry {
 			return &idx.JsonFiles[i]
@@ -563,7 +597,7 @@ func (s *Service) MediaSource(platform string, id int) (string, error) {
 	return s.mediaRenderableSource(item)
 }
 
-func (s *Service) cacheMediaFiles(platform string, idx *snapchat.Index) error {
+func (s *Service) cacheMediaFiles(platform string, idx *types.Index) error {
 	for i := range idx.Media {
 		target, err := s.mediaCachePath(platform, idx.Media[i].ID, idx.Media[i].Ext)
 		if err != nil {
@@ -596,7 +630,7 @@ func (s *Service) mediaCachePath(platform string, id int, ext string) (string, e
 	return filepath.Join(root, fmt.Sprintf("%06d.%s", id, ext)), nil
 }
 
-func (s *Service) mediaRenderableSource(item *snapchat.MediaItem) (string, error) {
+func (s *Service) mediaRenderableSource(item *types.MediaItem) (string, error) {
 	if item == nil || item.LocalPath == "" {
 		return "", errors.New("media source is unavailable")
 	}

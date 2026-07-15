@@ -3,6 +3,8 @@ package snapchat
 import (
 	"encoding/json"
 	"sort"
+
+	"mochila-archive-viewer/src/internal/types"
 )
 
 type RawMessage struct {
@@ -15,38 +17,28 @@ type RawMessage struct {
 	MediaIDs  string `json:"Media IDs"`
 }
 
-type ChatMessage struct {
-	From      string `json:"from"`
-	Content   string `json:"content"`
-	MediaType string `json:"mediaType"`
-	Created   string `json:"created"`
-	IsSender  bool   `json:"isSender"`
-	IsSaved   bool   `json:"isSaved"`
-	MediaIDs  string `json:"mediaIds"`
-}
-
 type Conversation struct {
-	ID           string        `json:"id"`
-	Title        string        `json:"title"`
-	MessageCount int           `json:"messageCount"`
-	SavedCount   int           `json:"savedCount"`
-	MediaCount   int           `json:"mediaCount"`
-	LastCreated  string        `json:"lastCreated"`
-	Messages     []ChatMessage `json:"messages"`
+	ID           string              `json:"id"`
+	Title        string              `json:"title"`
+	MessageCount int                 `json:"messageCount"`
+	SavedCount   int                 `json:"savedCount"`
+	MediaCount   int                 `json:"mediaCount"`
+	LastCreated  string              `json:"lastCreated"`
+	Messages     []types.ChatMessage `json:"messages"`
 }
 
-// ParseChatHistory parses the raw bytes of chat_history.json.
-func ParseChatHistory(raw []byte) ([]Conversation, error) {
+// ParseChatHistory parses the raw bytes of chat_history.json and returns types.Conversation slice.
+func ParseChatHistory(raw []byte) ([]types.Conversation, error) {
 	var history map[string][]RawMessage
 	if err := json.Unmarshal(raw, &history); err != nil {
 		return nil, err
 	}
 
-	convos := make([]Conversation, 0, len(history))
+	convos := make([]types.Conversation, 0, len(history))
 	for id, rawMessages := range history {
-		messages := make([]ChatMessage, 0, len(rawMessages))
+		messages := make([]types.ChatMessage, 0, len(rawMessages))
 		for _, m := range rawMessages {
-			messages = append(messages, ChatMessage{
+			messages = append(messages, types.ChatMessage{
 				From:      m.From,
 				Content:   m.Content,
 				MediaType: m.MediaType,
@@ -83,7 +75,7 @@ func ParseChatHistory(raw []byte) ([]Conversation, error) {
 			}
 		}
 
-		convos = append(convos, Conversation{
+		convos = append(convos, types.Conversation{
 			ID:           id,
 			Title:        title,
 			MessageCount: len(messages),
@@ -100,3 +92,4 @@ func ParseChatHistory(raw []byte) ([]Conversation, error) {
 
 	return convos, nil
 }
+

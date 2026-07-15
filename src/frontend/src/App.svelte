@@ -2,11 +2,15 @@
   import { onMount } from "svelte";
   import {
     GetFrontendState,
-    ActiveUserProfile,
     AvailableUsers,
     SelectUser,
     GetPlatformSnapshot,
     GetMedia,
+    GetMediaPaginated,
+    GetMediaCount,
+    GetPlatformStats,
+    GetAppSettings,
+    SaveAppSettings,
     GetConversations,
     GetConversation,
     GetJSONPreview,
@@ -72,6 +76,11 @@
     sampleJson?: string;
   };
   type PlatformSnapshot = { selected: ArchiveFile[]; summary: IndexSummary | null; media: MediaItem[]; jsonFiles: JsonFileRef[]; conversations: Conversation[] };
+  type PlatformStatItem = { 
+    id: string; name: string; status: string; 
+    mediaCount: number; imageCount: number; videoCount: number; 
+    zipCount: number; conversationCount: number; jsonFileCount: number; yearsFound: number 
+  };
   type View = "gallery" | "today" | "messages" | "structure" | "data";
   type StructureSection = "paths" | "archives" | "summary";
 
@@ -107,6 +116,30 @@
   let availableUsers: { id: number; username: string; fullName: string }[] = [];
   let searchInput: HTMLInputElement | undefined;
   let structureSection: StructureSection = "paths";
+  $: pageSizeLabel = pageSize + " items per page";
+
+  // Login & dashboard state
+  let showLoginScreen: boolean = false;
+  let loginUsername = "";
+  let loginFullname = "";
+  let authError = "";
+  
+  // Platform dashboard state  
+  let showDashboard = false;
+  let platformStatsList: PlatformStatItem[] = [];
+  let selectedPlatform: string | null = null;
+  
+  // Infinite scroll & pagination state
+  let paginatedMedia: MediaItem[] = [];
+  let totalMediaCount: number = 0;
+  let pageSize = 180;
+  let currentOffset = 0;
+  let isLoadingMore = false;
+  let hasMoreMedia = true;
+  
+  // Infinite scroll observer ref
+  let sentinelRef: HTMLElement | null = null;
+  let infiniteObserver: IntersectionObserver | null = null;
 
   const formatter = new Intl.NumberFormat();
   $: storeRoot = appState.storePath ? appState.storePath.replace("/database.sqlite", "") : "~/.mochila";
@@ -129,7 +162,9 @@
   $: searchableMedia = searchQuery
     ? filteredMedia.filter(m => m.entry.toLowerCase().includes(searchQuery.toLowerCase()) || m.category.toLowerCase().includes(searchQuery.toLowerCase()) || m.date.includes(searchQuery))
     : filteredMedia;
-  $: visibleMedia = searchableMedia.slice(0, visibleLimit);
+  // Use paginated media when in infinite scroll mode, otherwise original slicing
+  $: visibleMedia = selectedPlatform ? paginatedMedia : searchableMedia.slice(0, visibleLimit);
+  
   $: onThisDayMedia = media.filter((item) => item.date.slice(5, 10) === todayKey);
   $: selectedConversation =
     conversations.find((conversation) => conversation.id === selectedConversationId) ??
@@ -262,11 +297,166 @@
     await ensureMediaSources(media.slice(0, 180));
   }
 
-  onMount(async () => {
+    // ── Login/Logout handlers ──
+  async function handleLogin() {
+    if (!loginUsername.trim()) { authError = "Username is required"; return; }
+    try {
+      await SaveProfile(loginUsername.trim(), loginFullname.trim() || loginUsername.trim());
+      showLoginScreen = false;
+      showDashboard = true;
+      await loadPlatformDashboard();
+    } catch (e) {
+      authError = "Login failed: " + String(e);
+    }
+  }
+
+  async function handleLogout() {
+    try { await LogoutProfile(); } catch(e) {}
+    showLoginScreen = true;
+    showDashboard = false;
+    authError = "";
+    loginUsername = "";
+    loginFullname = "";
+    paginatedMedia = [];
+    selectedPlatform = null;
+    currentOffset = 0;
+    hasMoreMedia = true;
+    mediaSources = {};
+    mediaLoading = {};
+  }
+
+  // ── Dashboard loading ──
+  async function loadPlatformDashboard() {
+    try {
+      platformStatsList = [];
+      const platforms = ['snapchat', 'instagram', 'facebook'];
+      for (const p of platforms) {
+        let stats: any;
+        try { stats = await GetPlatformStats(p); } catch(e) { continue; }
+        if (stats) {
+          platformStatsList.push({
+            id: p, name: p.charAt(0).toUpperCase() + p.slice(1), status: stats.mediaCount > 0 ? 'indexed' : 'empty',
+            mediaCount: Number(stats.mediaCount || 0), imageCount: Number(stats.imageCount || 0), videoCount: Number(stats.videoCount || 0),
+            zipCount: Number(stats.zipCount || 0), conversationCount: Number(stats.conversationCount || 0), 
+            jsonFileCount: Number(stats.jsonFileCount || 0), yearsFound: Number(stats.yearsFound || 0)
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load dashboard stats:", e);
+    }
+  }
+
+  async function selectPlatform(platform: string) {
+    selectedPlatform = platform;
+    paginatedMedia = [];
+    totalMediaCount = 0;
+    currentOffset = 0;
+    hasMoreMedia = true;
+    mediaSources = {};
+    mediaLoading = {};
+    await loadMediaBatch();
+  }
+
+  // ── Infinite scroll / pagination ──
+  async function loadMediaBatch() {
+    if (isLoadingMore || !hasMoreMedia || !selectedPlatform) return;
+    isLoadingMore = true;
+    
+    try {
+      const platform = selectedPlatform!;
+      
+      // Get total count first time
+      if (currentOffset === 0) {
+        try { 
+          totalMediaCount = await GetMediaCount(platform, ""); 
+        } catch(e) {}
+      }
+      
+      const newItems: MediaItem[] = [];
+      let batchOffset = currentOffset;
+      let keepLoading = true;
+      
+      while (keepLoading) {
+        const items = await GetMediaPaginated(
+          platform, "",
+          batchOffset,
+          pageSize
+        );
+        
+        if (!items || items.length === 0) break;
+        
+        newItems.push(...items);
+        batchOffset += items.length;
+        
+        if (items.length < pageSize) break;
+      }
+      
+      paginatedMedia.push(...newItems);
+      currentOffset = batchOffset;
+      hasMoreMedia = totalMediaCount > 0 ? currentOffset < totalMediaCount : currentOffset === 0;
+      
+      // Reset observer target
+      setupInfiniteScroll();
+    } catch (e) {
+      console.error("Failed to load media:", e);
+    } finally {
+      isLoadingMore = false;
+    }
+  }
+
+  function triggerLoadMore() {
+    if (!isLoadingMore && hasMoreMedia) {
+      currentOffset = paginatedMedia.length;
+      loadMediaBatch();
+    }
+  }
+
+  // ── Infinite scroll observer ──
+  function setupInfiniteScroll() {
+    if (infiniteObserver) {
+      infiniteObserver.disconnect();
+    }
+    
+    if (!sentinelRef) return;
+    
+    infiniteObserver = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && hasMoreMedia && !isLoadingMore) {
+        triggerLoadMore();
+      }
+    }, { rootMargin: "400px" });
+    
+    infiniteObserver.observe(sentinelRef);
+  }
+
+  async function savePageSize(newSize: number) {
+    pageSize = Math.max(30, Math.min(500, newSize));
+    try { await SaveAppSettings({ pagesize: pageSize, loggedin: false }); } catch(e) {}
+  }
+
+  function handlePageSizeInput(event: Event) {
+    const target = event.target as HTMLInputElement;
+    savePageSize(Number(target.value));
+  }
+
+onMount(async () => {
     try {
       appState = await GetFrontendState();
       profileUsername = appState.profile.username ?? "";
       profileFullName = appState.profile.fullName ?? "";
+      
+      // Load user settings
+      const settings = await GetAppSettings();
+      if (settings) pageSize = Number(settings.pagesize) || 180;
+      
+      // Check login status and show appropriate screen
+      if (!appState.profile.loggedIn) {
+        showLoginScreen = true;
+      } else {
+        showDashboard = true;
+        await loadPlatformDashboard();
+      }
+      await loadAvailableUsers();
       await loadPlatform(activePlatform);
 
       // Register keyboard shortcuts for search UX
@@ -347,6 +537,11 @@
       structureSection = "paths";
       mediaSources = {};
       await ensureMediaSources(media.slice(0, 60));
+      
+      // After indexing, refresh dashboard if visible
+      if (showDashboard && selectedPlatform === activePlatform) {
+        await loadPlatformDashboard();
+      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -397,6 +592,11 @@
     try {
       const profile = await SaveProfile(profileUsername, profileFullName);
       appState = { ...appState, profile };
+      if (profile.loggedIn) {
+        showLoginScreen = false;
+        showDashboard = true;
+        await loadPlatformDashboard();
+      }
       profileOpen = false;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
@@ -405,17 +605,19 @@
 
   async function logoutProfile() {
     try {
-      const profile = await LogoutProfile();
-      appState = { ...appState, profile };
+      const nextProfile = await LogoutProfile();
+      appState = { ...appState, profile: nextProfile };
       profileUsername = "";
       profileFullName = "";
+      showLoginScreen = true;
+      showDashboard = false;
       profileOpen = false;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     }
   }
 
-  async function switchUser(userId: number, username: string) {
+  async function switchUser(userId: number) {
     try {
       const profile = await SelectUser(userId);
       appState = { ...appState, profile };
@@ -457,6 +659,111 @@
       <h1>Loading Mochila...</h1>
       <p>Opening the local archive workspace.</p>
     </section>
+  </main>
+{:else if showLoginScreen}
+  <!-- LOGIN SCREEN -->
+  <main class="center">
+    <section class="login-card">
+      <div style="text-align:center;margin-bottom:2rem;">
+        <h1 style="font-size:2rem;margin-bottom:0.5rem;">Mochila Archive Viewer</h1>
+        <p class="subtitle" style="max-width:300px;margin:0 auto;">Snapchat Data Explorer</p>
+      </div>
+      
+      {#if authError}
+        <p style="color:#ef4444;margin-bottom:1rem;text-align:center;">{authError}</p>
+      {/if}
+      
+      <form on:submit|preventDefault={handleLogin}>
+        <div class="form-group" style="margin-bottom:1rem;">
+          <label for="login-username" style="display:block;margin-bottom:0.25rem;font-weight:600;">Username</label>
+          <input 
+            id="login-username"
+            type="text" 
+            bind:value={loginUsername}
+            placeholder="Enter your username"
+            autocomplete="username"
+            style="width:100%;padding:0.5rem;border:1px solid #374151;border-radius:0.375rem;background:#1f2937;color:white;"
+          />
+        </div>
+        
+        <div class="form-group" style="margin-bottom:1.5rem;">
+          <label for="login-fullname" style="display:block;margin-bottom:0.25rem;font-weight:600;">Full Name (optional)</label>
+          <input 
+            id="login-fullname"
+            type="text" 
+            bind:value={loginFullname}
+            placeholder="Enter your full name"
+            autocomplete="name"
+            style="width:100%;padding:0.5rem;border:1px solid #374151;border-radius:0.375rem;background:#1f2937;color:white;"
+          />
+        </div>
+        
+        <button type="submit" class="btn-primary" style="width:100%;padding:0.75rem;font-size:1rem;">
+          Sign In
+        </button>
+      </form>
+    </section>
+  </main>
+{:else if showDashboard}
+  <!-- PLATFORM DASHBOARD -->
+  <main class="dashboard-main">
+    <div style="max-width:960px;margin:0 auto;padding:2rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;">
+        <div>
+          <h1 style="font-size:1.875rem;margin-bottom:0.25rem;">Mochila Archive Viewer</h1>
+          <p class="subtitle">Select a platform to explore your archive</p>
+        </div>
+        <button on:click={handleLogout} class="btn-secondary" style="padding:0.5rem 1rem;">
+          Logout
+        </button>
+      </div>
+      
+      <div class="platform-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;">
+        {#each platformStatsList as stat}
+          <div 
+            class="platform-card" 
+            tabindex="0"
+            role="button"
+            aria-label="Select {stat.name} platform"
+            on:click={() => selectPlatform(stat.id)}
+            on:keydown={(e) => e.key === "Enter" && selectPlatform(stat.id)}
+            style="background:#1f2937;border:1px solid #374151;border-radius:0.75rem;padding:1.5rem;cursor:pointer;transition:all 0.2s;"
+          >
+            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:1rem;">
+              <h2 style="font-size:1.25rem;text-transform:capitalize;">{stat.name}</h2>
+              <span class="badge" style="padding:0.25rem 0.75rem;border-radius:9999px;font-size:0.75rem;{ stat.status === 'indexed' ? 'background:#065f46;color:#6ee7b7;' : 'background:#374151;color:#9ca3af;' }">
+                {stat.status}
+              </span>
+            </div>
+            
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;margin-top:1rem;">
+              <div>
+                <div style="font-size:1.5rem;font-weight:700;color:#f3f4f6;">{stat.mediaCount.toLocaleString()}</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Media Items</div>
+              </div>
+              <div>
+                <div style="font-size:1.25rem;font-weight:600;color:#f3f4f6;">{stat.zipCount}</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Zips</div>
+              </div>
+              <div>
+                <div style="font-size:1rem;font-weight:600;color:#60a5fa;">{stat.imageCount.toLocaleString()}</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Photos</div>
+              </div>
+              <div>
+                <div style="font-size:1rem;font-weight:600;color:#f87171;">{stat.videoCount.toLocaleString()}</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Videos</div>
+              </div>
+            </div>
+            
+            {#if stat.conversationCount > 0}
+              <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #374151;font-size:0.875rem;color:#9ca3af;">
+                {stat.conversationCount.toLocaleString()} conversations · {stat.jsonFileCount.toLocaleString()} JSON files
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
   </main>
 {:else if !summary}
   <main class="center">
@@ -635,7 +942,11 @@
             </div>
 
             {#if visibleMedia.length < filteredMedia.length}
-              <button class="load-more" on:click={loadMore}>Load more</button>
+              <button class="load-more" on:click={triggerLoadMore} disabled={isLoadingMore}>
+                {isLoadingMore ? "Loading..." : `Load more (${paginatedMedia.length} of ${totalMediaCount.toLocaleString()})`}
+              </button>
+              <!-- Infinite scroll sentinel -->
+              <div bind:this={sentinelRef} style="height:1px;"></div>
             {/if}
           {/if}
         </div>
@@ -855,6 +1166,8 @@
 {/if}
 
 
+// Page size for gallery display
+
 {#if settingsOpen}
   <div class="modal-backdrop" role="presentation" on:click={() => (settingsOpen = false)}>
     <div class="settings-modal" role="dialog" aria-modal="true" on:click|stopPropagation on:keydown|stopPropagation>
@@ -887,8 +1200,23 @@
 
       <section class="settings-section">
         <h3>Display</h3>
+        <div class="setting-row" style="margin-bottom:1rem;">
+          <label for="page-size-slider" style="display:flex;flex-direction:column;gap:0.25rem;">
+            <span>Items per page (gallery)</span>
+            <input 
+              id="page-size-slider"
+              type="range" 
+              min="30" 
+              max="500" 
+              step="10" 
+              value={pageSize}
+              on:input={handlePageSizeInput}
+              style="width:100%;max-width:200px;"
+            />
+            <span style="font-size:0.875rem;color:#9ca3af;">{pageSizeLabel}</span>
+          </label>
+        </div>
         <dl class="settings-list">
-          <div><dt>Media batch size</dt><dd>{visibleLimit} items per load</dd></div>
           <div><dt>Cached sources</dt><dd>{Object.keys(mediaSources).length} media items pre-loaded</dd></div>
         </dl>
       </section>
@@ -920,7 +1248,7 @@
         <p class="section-label">Switch profile</p>
         <div class="user-list">
           {#each availableUsers as user}
-            <button class="user-pill" on:click={() => switchUser(user.id, user.username)}>
+            <button class="user-pill" on:click={() => switchUser(user.id)}>
               <span class="user-name">{user.fullName || user.username}</span>
               {#if appState.profile.id === user.id && appState.profile.loggedIn}
                 <span class="current-badge">you</span>

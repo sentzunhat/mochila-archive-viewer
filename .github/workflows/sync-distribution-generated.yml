@@ -1,0 +1,72 @@
+name: Validate Distribution Generated
+
+on:
+    push:
+        branches:
+            - main
+            - dev
+        paths:
+            - distribution/sources/**
+            - distribution/generated/**
+            - core/providers/shared/**
+            - librarian/scripts/librarian/distribution/**
+            - librarian/scripts/librarian/providers/**
+            - librarian/scripts/lib/**
+            - librarian/package.json
+            - .nvmrc
+            - README.md
+            - .github/workflows/sync-distribution-generated.yml
+    pull_request:
+        branches:
+            - main
+            - dev
+        paths:
+            - distribution/sources/**
+            - distribution/generated/**
+            - core/providers/shared/**
+            - librarian/scripts/librarian/distribution/**
+            - librarian/scripts/librarian/providers/**
+            - librarian/scripts/lib/**
+            - librarian/package.json
+            - .nvmrc
+            - README.md
+            - .github/workflows/sync-distribution-generated.yml
+
+jobs:
+    validate-generated:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+                  cache-dependency-path: librarian/package-lock.json
+
+            - name: Show Node and npm versions
+              run: node -v && npm -v
+
+            - name: Install librarian dependencies
+              run: npm ci
+              working-directory: librarian
+
+            - name: Sync generated distribution guides
+              run: npm run distribution:sync
+              working-directory: librarian
+
+            - name: Fail on generated drift
+              run: |
+                  if git diff --quiet -- distribution/generated core/providers/.github/instructions core/providers/.cursor/rules core/providers/.continue/rules; then
+                    echo "Generated distribution guides and materialized provider overlays are current"
+                    exit 0
+                  fi
+
+                  echo "Generated outputs are stale. Run 'npm --prefix librarian run distribution:sync' and commit the updates."
+                  git --no-pager diff -- distribution/generated core/providers/.github/instructions core/providers/.cursor/rules core/providers/.continue/rules
+                  exit 1

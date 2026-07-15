@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"mochila-archive-viewer/src/internal/types"
 )
 
 var (
@@ -16,44 +18,8 @@ var (
 	datePattern  = regexp.MustCompile(`(?:^|/)(\d{4}-\d{2}-\d{2})[_/]`)
 )
 
-type ZipMeta struct {
-	ZipIndex int    `json:"zipIndex"`
-	Path     string `json:"path"`
-	Name     string `json:"name"`
-	Entries  int    `json:"entries"`
-	Size     int64  `json:"size"`
-}
-
-type MediaItem struct {
-	ID        int    `json:"id"`
-	ZipIndex  int    `json:"zipIndex"`
-	Zip       string `json:"zip"`
-	Entry     string `json:"entry"`
-	Category  string `json:"category"`
-	Date      string `json:"date"`
-	Year      string `json:"year"`
-	Type      string `json:"type"`
-	Ext       string `json:"ext"`
-	LocalPath string `json:"localPath"`
-}
-
-type JsonFileRef struct {
-	ZipIndex int    `json:"zipIndex"`
-	Zip      string `json:"zip"`
-	Entry    string `json:"entry"`
-}
-
-type Index struct {
-	Zips       []ZipMeta      `json:"zips"`
-	Media      []MediaItem    `json:"media"`
-	JsonFiles  []JsonFileRef  `json:"jsonFiles"`
-	Categories map[string]int `json:"categories"`
-	Years      map[string]int `json:"years"`
-	Types      map[string]int `json:"types"`
-}
-
-func IndexZips(paths []string) (*Index, error) {
-	idx := &Index{
+func IndexZips(paths []string) (*types.Index, error) {
+	idx := &types.Index{
 		Categories: make(map[string]int),
 		Years:      make(map[string]int),
 		Types:      make(map[string]int),
@@ -70,7 +36,7 @@ func IndexZips(paths []string) (*Index, error) {
 			size = fi.Size()
 		}
 
-		meta := ZipMeta{
+		meta := types.ZipMeta{
 			ZipIndex: zipI,
 			Path:     path,
 			Name:     filepath.Base(path),
@@ -88,7 +54,7 @@ func IndexZips(paths []string) (*Index, error) {
 
 			lentry := strings.ToLower(entry)
 			if strings.HasSuffix(lentry, ".json") {
-				idx.JsonFiles = append(idx.JsonFiles, JsonFileRef{
+				idx.JsonFiles = append(idx.JsonFiles, types.JsonFileRef{
 					ZipIndex: zipI,
 					Zip:      meta.Name,
 					Entry:    entry,
@@ -110,7 +76,7 @@ func IndexZips(paths []string) (*Index, error) {
 			idx.Years[year]++
 			idx.Types[mtype]++
 
-			idx.Media = append(idx.Media, MediaItem{
+			idx.Media = append(idx.Media, types.MediaItem{
 				ID:       len(idx.Media),
 				ZipIndex: zipI,
 				Zip:      meta.Name,
