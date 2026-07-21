@@ -1,27 +1,19 @@
 # Mochila Design System Reference
 
-**Created:** 2026-07-13  
-**Version:** v0.1  
+**Created:** 2026-07-13
+**Updated:** 2026-07-21 — reconciled against what actually shipped (Tailwind activation, per-platform theming); see the note at the end of each section that changed.
+**Version:** v0.2
 **Scope:** Frontend UI tokens, typography, color theming per provider
 
 ---
 
 ## 1. Typography
 
-### Primary Typeface — Source Pro (Google Fonts)
+### Primary Typeface — Inter (shipped; Source Pro not adopted)
 
-Source Pro is the designated font for all text across Mochila. It replaces Inter as the default body stack.
+**Correction (2026-07-21):** the v0.1 draft of this doc specified switching to Source Pro via Google Fonts. That never shipped — the app still uses Inter, loaded as a system/bundled font stack with no external network request. This is deliberate, not an oversight: Mochila is local-first and works fully offline (see README), and a Google Fonts `<link>` would be the first network dependency in the UI shell. Keeping Inter is the recommended default; switching fonts is an open decision for the user, not something to assume — see the implementation plan's "Open decision" section.
 
-```html
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link
-  href="https://fonts.googleapis.com/css2?family=Source+Pro:wght@400;500;600;700;800&display=swap"
-  rel="stylesheet"
-/>
-```
-
-**Fallback stack:** `Source Pro, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+**Current stack:** `Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` (`src/frontend/src/style.css`, `body`)
 
 ### Type Scale
 
@@ -36,7 +28,7 @@ Source Pro is the designated font for all text across Mochila. It replaces Inter
 
 - **h1:** `font-size: 28px; font-weight: 600; line-height: 1; margin: 0;`
 - **h2:** `font-size: 18px; font-weight: 600; line-height: 1.3; margin: 0; letter-spacing: 0;`
-- **body:** `font-family: var(--font-sans); color: var(--ink);` (size inherited)
+- **body:** `font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink);` (size inherited) — hardcoded directly today, not yet a `--font-sans` token; see § 7.1
 - **eyebrow/caption:** `font-size: 12–13px; font-weight: 700; color: var(--muted);`
 - **button text:** `font-weight: 800; font-size: inherit; letter-spacing: 0;`
 
@@ -56,59 +48,56 @@ Source Pro is the designated font for all text across Mochila. It replaces Inter
 
 ### Accent Colors — Provider-Specific
 
-Each provider defines its own accent palette. Core tokens live on the body element scoped to active platform.
+**Correction (2026-07-21):** the v0.1 hex values below didn't match what actually shipped (Instagram in particular used a different pink/purple pair than what was implemented). Values below are the real source of truth — `src/frontend/tailwind.config.cjs` (Tailwind utility classes) and the `platformThemes` map in `src/frontend/src/App.svelte` (CSS custom-property values, includes `ink` — not documented in v0.1 at all). Keep both in sync by hand; nothing generates one from the other.
 
-#### Snapchat Theme (Active First)
+New since v0.1: an **`--accent-ink`** token — the text color to use *on top of* an accent fill. Snapchat's yellow needs dark text; Instagram/Facebook's saturated fills need white text.
 
-| Token            | Hex       | Usage                                                 |
-| ---------------- | --------- | ----------------------------------------------------- |
-| `--accent`       | `#fffc00` | Accent fills (active tabs, badges, highlights)        |
-| `--accent-dark`  | `#cfc600` | Accent borders, active state strokes, button outlines |
-| `--accent-light` | `#fffdd9` | Subtle tints, hover backgrounds, gradients            |
+#### Snapchat Theme (live)
 
-#### Instagram Theme (Planned)
+| Token           | Hex       | Usage                                                     |
+| --------------- | --------- | ---------------------------------------------------------- |
+| `--accent`      | `#fffc00` | Accent fills (active tabs, badges, highlights)            |
+| `--accent-dark` | `#cfc600` | Accent borders, active state strokes, button outlines     |
+| `--accent-soft` | `#fffdd9` | Subtle tints, sent-message background                     |
+| `--accent-ink`  | `#181712` | Text on top of `--accent` (dark — yellow is light)         |
 
-| Token            | Hex       | Usage                                |
-| ---------------- | --------- | ------------------------------------ |
-| `--accent`       | `#e1306c` | Accent fills (Instagram pink/rose)   |
-| `--accent-dark`  | `#c13584` | Accent borders, active state strokes |
-| `--accent-light` | `#fce4ec` | Subtle tints, hover backgrounds      |
+#### Instagram Theme (live)
 
-#### Facebook Theme (Planned)
+| Token           | Hex       | Usage                                                     |
+| --------------- | --------- | ---------------------------------------------------------- |
+| `--accent`      | `#dd2a7b` | Accent fills, badge text/border                           |
+| `--accent-dark` | `#8134af` | Accent borders, active state strokes                       |
+| `--accent-soft` | `#fdeef5` | Subtle tints, badge background                             |
+| `--accent-ink`  | `#ffffff` | Text on top of `--accent` (white — pink is saturated)      |
 
-| Token            | Hex       | Usage                                |
-| ---------------- | --------- | ------------------------------------ |
-| `--accent`       | `#1877f2` | Accent fills (Facebook blue)         |
-| `--accent-dark`  | `#0d65d9` | Accent borders, active state strokes |
-| `--accent-light` | `#e7f3ff` | Subtle tints, hover backgrounds      |
+Dashboard card top bars use the real multi-stop Instagram gradient, not this flat fill: `bg-gradient-to-r from-[#f58529] via-instagram to-[#515bd4]` (Tailwind arbitrary-value classes, `App.svelte`) — orange → pink → blue, matching Instagram's actual brand mark. Dashboard-only decoration; the `--accent` variable (explorer header strip, active tab, sent-message bubble) stays the flat pink above.
 
-### Theme Scoping Rule
+#### Facebook Theme (live)
 
-When user switches platform:
+| Token           | Hex       | Usage                                                     |
+| --------------- | --------- | ---------------------------------------------------------- |
+| `--accent`      | `#1877f2` | Accent fills, badge text/border                           |
+| `--accent-dark` | `#0e5fcb` | Accent borders, active state strokes                       |
+| `--accent-soft` | `#e9f2fe` | Subtle tints, badge background                             |
+| `--accent-ink`  | `#ffffff` | Text on top of `--accent` (white — blue is saturated)      |
 
-1. Body receives class: `<body class="platform-snapchat">`, `.platform-instagram`, `.platform-facebook`
-2. Provider-specific tokens override `--accent`, `--accent-dark`, `--accent-light` via CSS cascade
-3. Shared tokens (`--bg`, `--ink`, `--muted`, `--line`, `--panel`) remain constant
+### Theme Scoping Rule (corrected)
 
-```css
-body.platform-snapchat {
-  --accent: #fffc00;
-  --accent-dark: #cfc600;
-  --accent-light: #fffdd9;
-}
+**Correction (2026-07-21):** the v0.1 draft specified a body-class + CSS-cascade mechanism (`<body class="platform-snapchat">`). That was never built. The shipped mechanism is a Svelte reactive block in `App.svelte` that calls `document.documentElement.style.setProperty(...)` directly whenever `activePlatform` changes — same effect (the four `--accent*` custom properties update live), different implementation:
 
-body.platform-instagram {
-  --accent: #e1306c;
-  --accent-dark: #c13584;
-  --accent-light: #fce4ec;
-}
-
-body.platform-facebook {
-  --accent: #1877f2;
-  --accent-dark: #0d65d9;
-  --accent-light: #e7f3ff;
+```javascript
+// src/frontend/src/App.svelte
+$: activeTheme = platformThemes[activePlatform] ?? platformThemes.snapchat;
+$: if (typeof document !== "undefined" && activeTheme) {
+  const s = document.documentElement.style;
+  s.setProperty("--accent", activeTheme.accent);
+  s.setProperty("--accent-dark", activeTheme.dark);
+  s.setProperty("--accent-soft", activeTheme.soft);
+  s.setProperty("--accent-ink", activeTheme.ink);
 }
 ```
+
+Shared tokens (`--bg`, `--ink`, `--muted`, `--line`, `--panel`) are never overridden per platform and stay constant.
 
 ### Accessibility Baseline
 
@@ -178,7 +167,7 @@ Values observed in `style.css` are roughly 4px-based with intentional irregulari
 | --------------- | ------------------------------------------------------------------------------------ | ---------------------- |
 | Header backdrop | `backdrop-filter: blur(16px); background: color-mix(in srgb, var(--bg) 94%, white);` | Glass effect on scroll |
 | Card shadows    | None currently — flat design language                                                | Maintain lightness     |
-| Hover states    | Background shift + subtle border accent (`var(--accent-light)`)                      | No elevation change    |
+| Hover states    | Background shift + subtle border accent (`var(--accent-soft)`)                       | No elevation change    |
 
 ---
 
@@ -186,8 +175,8 @@ Values observed in `style.css` are roughly 4px-based with intentional irregulari
 
 When working with the frontend:
 
-1. **Always reference `--font-sans`** (defined as `Source Pro, ... fallback stack`) rather than hardcoding font families
-2. **Use CSS custom properties** instead of raw hex/px values — never introduce new hardcoded colors or sizes without first consulting this document
-3. **Provider theming flows through body class** — do not scope theme tokens to provider-specific components; cascade from body
+1. **Font family is hardcoded on `body`, not tokenized** (`font-family: Inter, ui-sans-serif, ...` directly in `style.css`) — there is no `--font-sans` custom property today, despite earlier drafts of this doc assuming one. Introducing that token (and deciding whether to keep Inter or add a webfont) is open remaining scope — see the implementation plan.
+2. **Use CSS custom properties** instead of raw hex/px values — never introduce new hardcoded colors or sizes without first consulting this document. Four hardcoded hex values still remain in `style.css` as of 2026-07-21 (`.preview` background, `.placeholder` text, the `.today-hero` gradient, `.modal-media` background) — see the implementation plan for exact lines.
+3. **Provider theming flows through `document.documentElement.style.setProperty`** in `App.svelte`'s reactive block, not a body class — see the Theme Scoping Rule above. Read the four `--accent*` custom properties in CSS; don't add new platform-conditional CSS selectors.
 4. **All providers share the same user_id in the database** (confirmed by `platform_snapshots` table having `(platform, user_id)` composite key) — theming is purely cosmetic, data isolation already handled by backend
-5. **When adding new accent colors for providers**, extend the palette table in Section 2 and document fallback/contrast considerations
+5. **When adding new accent colors for providers**, update *both* `tailwind.config.cjs` (Tailwind classes) and the `platformThemes` map in `App.svelte` (CSS variables) — they are two independent sources of truth today, extend the palette tables in Section 2, and document fallback/contrast considerations

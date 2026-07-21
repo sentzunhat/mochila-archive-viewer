@@ -1,228 +1,99 @@
 # Design System Implementation Plan
 
-**Created:** 2026-07-13  
-**Parent Item:** [012](./012.md) — Frontend Design System (design doc only)  
-**Status:** draft — not yet approved for implementation
+**Created:** 2026-07-13
+**Rewritten:** 2026-07-21 — most of the original v1 plan (Steps 1, 3, 4) shipped differently or not at all between 2026-07-13 and now (Tailwind activation, theming). This version reflects actual current code, not the original draft.
+**Parent Item:** [012](./012.md) — Frontend Design System
+**Status:** ready to execute — small, low-risk, mechanical
 
 ---
 
-## Overview
+## What already shipped (no longer part of this plan)
 
-This plan describes the code changes needed to consolidate scattered CSS values into the token system defined in `.hawp/kit/examples/design-system.md`. All changes are frontend-only; no backend modifications required.
+Between the original plan (2026-07-13) and now, the following happened as part of other work items, in a different shape than originally drafted:
 
----
+- **Tailwind activated** (`@tailwind base/components/utilities` in `style.css`, `preflight: false` so it layers on top of the existing hand-written CSS without resetting it). Originally planned as "Step 4 — Tailwind config alignment"; actually done first and more thoroughly — login and dashboard are now built with Tailwind utilities, not just a config file nobody used.
+- **Per-platform theming**, originally planned as "Step 3 — body class". Shipped instead as a Svelte reactive block calling `document.documentElement.style.setProperty()` on `--accent`/`--accent-dark`/`--accent-soft`/`--accent-ink` (see `design-system.md` § Theme Scoping Rule for the exact code). Functionally the same outcome (CSS variables update on platform switch), different mechanism — **do not implement the body-class version**, it would conflict with what's live.
+- **Real per-provider colors are live**: Snapchat yellow, Instagram pink/purple + a real gradient top bar, Facebook blue — see `tailwind.config.cjs` and the `platformThemes` map in `App.svelte`. The original plan's Instagram hex values (`#e1306c`/`#c13584`) don't match what shipped (`#dd2a7b`/`#8134af`) — `design-system.md` has been corrected to the real values as of 2026-07-21.
 
-## File List
-
-| File                               | Change Type                                                  |
-| ---------------------------------- | ------------------------------------------------------------ |
-| `src/frontend/index.html`          | Add Source Pro `<link>` tag                                  |
-| `src/frontend/src/style.css`       | Rewrite: replace hardcoded values with CSS custom properties |
-| `src/frontend/tailwind.config.cjs` | Align Tailwind colors with design tokens                     |
-| `src/frontend/src/main.ts`         | (optional) Set initial body class for default provider theme |
+**What this means for this plan:** only the original "Step 2" (hardcoded hex → token consolidation) is still real, unstarted work. Steps 1, 3, 4 below are rewritten accordingly.
 
 ---
 
-## Step 1 — Source Pro Font Integration
+## Open decision: keep Inter, or add a webfont?
 
-### File: `src/frontend/index.html`
+The original plan assumed switching to Source Pro via a Google Fonts `<link>`. That's a real product decision, not a mechanical change — **flagging it rather than assuming an answer**:
 
-Add Google Fonts link in `<head>`:
+- **Keep Inter (recommended, no changes needed)**: already loaded, zero network dependency. Mochila is explicitly local-first and works fully offline (see README) — a Google Fonts request would be the UI's first network call, which is a meaningful architectural change for a cosmetic one.
+- **Switch to a webfont**: requires either (a) a `<link>` to Google Fonts (adds the network dependency above, and the font simply won't load / silently falls back when offline — acceptable degradation, but worth being explicit that this is what happens), or (b) bundling font files into the app so it stays fully offline (larger binary, no network dependency, more setup).
 
-```html
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link
-  href="https://fonts.googleapis.com/css2?family=Source+Pro:wght@400;500;600;700;800&display=swap"
-  rel="stylesheet"
-/>
-```
+Recommendation: keep Inter unless there's a specific brand reason to change. If you do want a webfont, bundling (b) fits the app's stated architecture better than a remote `<link>` (a).
 
-### File: `src/frontend/src/style.css`
+---
 
-Update body and font declarations:
+## Step 1 — Formalize the font as a token (small, optional)
+
+Currently `font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;` is hardcoded directly on `body` in `style.css` — there's no `--font-sans` custom property, despite `design-system.md`'s Typography section implying one exists. Purely a cleanup for consistency with the rest of the token system; skip if not worth the churn.
 
 ```css
-:root {
-  /* ... existing tokens unchanged ... */
-  --font-sans:
-    "Source Pro", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
-}
+/* src/frontend/src/style.css, in :root */
+--font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
+/* body rule becomes */
 body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
   font-family: var(--font-sans);
 }
-
-/* Remove the old hardcoded font on button/input/select — inherit is enough */
 ```
 
 ---
 
-## Step 2 — Consolidate CSS Custom Properties in `style.css`
+## Step 2 — Replace the remaining hardcoded hex values
 
-### 2a. Add spacing and radius tokens
+The only real drift left. Confirmed by direct file audit on 2026-07-21 (exact current line numbers, `src/frontend/src/style.css`):
+
+| Line | Selector           | Current                                              | Fix                                                                                                                    |
+| ---- | ------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 276  | `.preview`          | `background: #171717;`                               | New token `--surface-dark: #171717;` in `:root`, then `background: var(--surface-dark);` — this is the dark tile background behind loading photo/video thumbnails, intentionally darker than any existing token (not derivable from `--ink` via `color-mix` without a visible shift — checked, `color-mix(in srgb, var(--ink) 80%, transparent)` renders lighter than the current `#171717`). |
+| 288  | `.placeholder`       | `color: #f6f0d5;`                                     | Same rationale — this is cream text *on the dark `.preview` background above*, not related to any existing light-mode token. New token `--surface-dark-ink: #f6f0d5;` in `:root`, used only by `.placeholder`.                                                                                    |
+| 386  | `.today-hero` gradient | `linear-gradient(135deg, #fffef8, #f1edc9)`         | `#fffef8` is already `--panel` verbatim — swap directly: `linear-gradient(135deg, var(--panel), var(--accent-soft))`. Verify visually: `--accent-soft` is `#fffdd9` (Snapchat) by default, close to but not identical to `#f1edc9` — expected, since this hero block should ideally react to the active platform accent like the rest of the header now does, and currently doesn't (separate finding below). |
+| 531  | `.modal-media`       | `background: #111;`                                   | New token `--surface-dark: #171717;` (reuse from line 276) — same "media letterboxing" concept, close enough hex distance (`#111` vs `#171717`) that using one token for both is the right call, not two near-duplicate ones.                                                                     |
+
+Net result: two new tokens (`--surface-dark`, `--surface-dark-ink`) added to `:root`, both existing accent tokens (`--panel`, `--accent-soft`) reused at line 386 instead of introduced.
+
+### Related finding: `.today-hero` doesn't follow the active platform accent
+
+While auditing line 386, noticed the "On This Day" hero card's background gradient and radial highlight (`rgba(255, 252, 0, 0.65)` — hardcoded Snapchat yellow) don't update when switching platforms, unlike the header strip / active tab / sent-message bubble (all of which already read `--accent`). Minor visual inconsistency once Instagram/Facebook explorers exist — worth fixing in the same pass as the token swap above:
 
 ```css
-:root {
-  /* ... existing color tokens ... */
-
-  /* Spacing scale (4px grid) */
-  --space-0: 0;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-
-  /* Border radius */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-full: 999px;
+.today-hero {
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--accent) 65%, transparent), transparent 30%),
+    linear-gradient(135deg, var(--panel), var(--accent-soft));
 }
 ```
 
-### 2b. Replace hardcoded hex values
+---
 
-| Line (approx)                       | Current                                    | New                                                                                   |
-| ----------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------- |
-| 47 (header bg)                      | `color-mix(in srgb, var(--bg) 94%, white)` | ✅ already uses vars — no change needed                                               |
-| 102–103 (main padding)              | `padding: 18px 20px 34px`                  | `padding: var(--space-5) var(--space-5) var(--space-8)`                               |
-| 163,172,198,200 (border-radius 8px) | `border-radius: 8px`                       | `border-radius: var(--radius-md)`                                                     |
-| 247 (.bar radius)                   | `border-radius: 999px`                     | `border-radius: var(--radius-full)`                                                   |
-| 265 (.preview bg)                   | `background: #171717`                      | `background: color-mix(in srgb, var(--ink) 80%, transparent)` or new `--surface-dark` |
-| 277 (.placeholder text)             | `color: #f6f0d5`                           | `color: rgba(246, 240, 213, 0.9)` → later derive from accent-light                    |
-| 375 (.today-hero gradient)          | `#fffef8, #f1edc9`                         | `var(--panel), var(--accent-light)`                                                   |
-| 420 (today-hero bg)                 | `background: #fffdd9`                      | `background: var(--accent-light)`                                                     |
-| 520 (dark fallback)                 | `background: #111`                         | `background: color-mix(in srgb, var(--ink) 85%, transparent)`                         |
+## Step 3 — Tailwind config alignment
 
-### 2c. Replace hardcoded spacing values
-
-| Context                                        | Current          | New                                                                  |
-| ---------------------------------------------- | ---------------- | -------------------------------------------------------------------- |
-| `.topbar padding`                              | `18px 20px 14px` | `var(--space-5) var(--space-5) var(--space-3)`                       |
-| `.main padding`                                | `18px 20px 34px` | `var(--space-5) var(--space-5) var(--space-8)`                       |
-| `.stats gap` / `.controls gap`                 | `10px`           | `var(--space-2)` (close to 8; document as intentional if keeping 10) |
-| `.tabs gap`, `.year-list button gap`           | `8px`            | `var(--space-2)`                                                     |
-| `.gallery-layout gap` / `.messages-layout gap` | `16px`           | `var(--space-4)`                                                     |
-| `.tile-meta padding`                           | `8px`            | `var(--space-2)`                                                     |
-| `.message-panel padding`                       | `14px`           | `var(--space-3)` (document deviation)                                |
+Already done (see "What already shipped" above) — `tailwind.config.cjs` has `archive.*`, `snapchat.*`, `instagram.*`, `facebook.*` color groups matching `design-system.md` § 2 exactly as of the 2026-07-21 correction. **Nothing to do here.**
 
 ---
 
-## Step 3 — Provider Theming via Body Class
+## Execution order
 
-### In `src/frontend/src/App.svelte` (Svelte) or a Svelte action/store:
+1. Step 2 (hex → token) — the only functionally meaningful change, ~10 lines across `style.css`, no new dependencies, no visual regression risk beyond a quick eyeball check of the gallery tile placeholder, the media modal letterbox, and the On This Day hero.
+2. Step 1 (font token) — optional, purely organizational, zero visual change since Inter's value is copied verbatim into the new variable.
+3. Resolve the "Open decision" above if a webfont is wanted — otherwise nothing further to do.
 
-When platform switches, update body class:
+## Risk
 
-```typescript
-$: if (activePlatform) {
-  document.body.className = `platform-${activePlatform}`;
-}
-```
+Low. All changes are token substitutions with identical or near-identical resulting values (the `.today-hero` gradient shifts from a fixed cream to a platform-reactive tint — visually check after switching platforms, not just on Snapchat). No layout, spacing, or structural changes.
 
-Or in CSS directly within style.css after the `:root`:
+## Out of scope (unchanged from original plan)
 
-```css
-body.platform-snapchat {
-  --accent: #fffc00;
-  --accent-dark: #cfc600;
-  --accent-light: #fffdd9;
-}
-body.platform-instagram {
-  --accent: #e1306c;
-  --accent-dark: #c13584;
-  --accent-light: #fce4ec;
-}
-body.platform-facebook {
-  --accent: #1877f2;
-  --accent-dark: #0d65d9;
-  --accent-light: #e7f3ff;
-}
-```
-
-**Default theme is already Snapchat (set in CSS `:root`), so no class needed for that case.**
-
-### In `App.svelte` — update active tab indicator styling
-
-The `.active` class on tabs should use provider accent:
-
-```css
-button.active,
-.tabs button.active {
-  border-color: var(--accent-dark);
-  background: var(--accent);
-}
-```
-
-This already works if the body class approach sets `--accent` correctly.
-
----
-
-## Step 4 — Tailwind Config Alignment
-
-### File: `src/frontend/tailwind.config.cjs`
-
-Update to mirror CSS custom properties (Tailwind can reference them via arbitrary values or extend):
-
-```javascript
-module.exports = {
-  content: ["./index.html", "./src/**/*.{svelte,ts,js}"],
-  theme: {
-    extend: {
-      colors: {
-        archive: {
-          bg: "#fbfaf2",
-          panel: "#fffef8",
-          line: "#ded7ad",
-          muted: "#6f6b58",
-          ink: "#181712",
-        },
-        // Provider accents (documented; not actively used by Tailwind classes yet)
-        snap: { DEFAULT: "#fffc00", dark: "#cfc600" },
-        instagram: { DEFAULT: "#e1306c", dark: "#c13584" },
-        facebook: { DEFAULT: "#1877f2", dark: "#0d65d9" },
-      },
-      fontFamily: {
-        sans: ['"Source Pro"', "ui-sans-serif", "system-ui"],
-      },
-    },
-  },
-  plugins: [],
-};
-```
-
-**Note:** Tailwind uses compiled utility classes; the CSS custom properties approach in `style.css` is preferred for theme switching. Tailwind config serves as a secondary reference for any utility-based styling.
-
----
-
-## Risk Assessment
-
-| Risk                                                      | Level  | Mitigation                                                          |
-| --------------------------------------------------------- | ------ | ------------------------------------------------------------------- |
-| Source Pro loading latency                                | Low    | Use `display=swap`; app is desktop (Wails) so font caching is fast  |
-| CSS var regression during refactor                        | Medium | Change one section at a time; commit each step as a separate change |
-| Hardcoded spacing deviations lost in consolidation        | Low    | Document all intentional deviations in code comments                |
-| Provider accent colors fail contrast on panel backgrounds | Medium | Preview each theme with the WCAG AA checker before committing       |
-
----
-
-## Recommended Execution Order
-
-1. **Step 1** — Source Pro font (lowest risk, immediate visual payoff)
-2. **Step 3** — Body class + provider theming CSS (enables multi-provider look without changing existing component styles)
-3. **Step 2** — Consolidate all hardcoded values into tokens (medium effort, high impact on consistency)
-4. **Step 4** — Tailwind config alignment (cosmetic documentation pass)
-
----
-
-## What Is NOT in This Plan (Future Work)
-
-- Dark mode support (documented as out-of-scope for #012)
-- Component-level animations or transitions beyond hover states
-- Redesigning existing layouts (only color/typography/spacing changes)
-- Adding new providers beyond Snapchat/Instagram/Facebook scaffolding
+- Dark mode support
+- Component-level animations/transitions beyond existing hover states
+- Redesigning layouts (color/token-only pass)
