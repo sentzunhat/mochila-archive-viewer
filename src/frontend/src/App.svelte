@@ -106,7 +106,6 @@
   let selectedJSONIndex = 0;
   let jsonPreview: JSONPreview | null = null;
   let selectedMedia: MediaItem | null = null;
-  let visibleLimit = 180;
   let searchQuery = "";
   let mediaSources: Record<number, string> = {};
   let mediaLoading: Record<number, "pending" | "resolved" | "failed"> = {};
@@ -192,18 +191,11 @@
   $: maxYearCount = summary ? Math.max(...years.map(([, count]) => count), 1) : 0;
   $: categories = summary ? Object.entries(summary.categories).sort(([a], [b]) => a.localeCompare(b)) : [];
   $: types = summary ? Object.entries(summary.types).sort(([a], [b]) => a.localeCompare(b)) : [];
-  $: filteredMedia = media.filter((item) => {
-    if (selectedYear !== "all" && item.year !== selectedYear) return false;
-    if (selectedCategory !== "all" && item.category !== selectedCategory) return false;
-    if (selectedType !== "all" && item.type !== selectedType) return false;
-    return true;
-  });
-  $: searchableMedia = searchQuery
-    ? filteredMedia.filter(m => m.entry.toLowerCase().includes(searchQuery.toLowerCase()) || m.category.toLowerCase().includes(searchQuery.toLowerCase()) || m.date.includes(searchQuery))
-    : filteredMedia;
-  // Use paginated media when in infinite scroll mode, otherwise original slicing
-  $: visibleMedia = selectedPlatform ? paginatedMedia : searchableMedia.slice(0, visibleLimit);
-  
+  // The gallery is always reached via a selected platform, and media is
+  // always fetched pre-filtered from the backend (year/category/type/search
+  // all narrow the SQL query — see currentMediaFilter/reloadFilteredMedia).
+  $: visibleMedia = paginatedMedia;
+
   $: onThisDayMedia = media.filter((item) => item.date.slice(5, 10) === todayKey);
   $: selectedConversation =
     conversations.find((conversation) => conversation.id === selectedConversationId) ??
@@ -285,8 +277,19 @@
     }
   }
 
-  // Reactive: auto-fetch sources when conversations become visible
-  $: if (!loading && selectedConversationId && selectedConversation?.messages?.length === 0 && conversations.length > 0) {
+  // Reactive: load the selected conversation's messages once its summary
+  // arrives. List-only conversations come back with `messages: null`
+  // (Go serializes a nil slice as null, not []), so this must check falsy
+  // rather than `.length === 0` — that comparison never matches null/undefined
+  // and silently skipped the initial auto-load.
+  $: if (
+    !loading &&
+    selectedConversationId &&
+    !selectedConversation?.messages?.length &&
+    !loadingConversation &&
+    !loadedConversationIds.has(selectedConversationId) &&
+    conversations.length > 0
+  ) {
     openConversation(selectedConversationId);
   }
 
@@ -322,13 +325,18 @@
     jsonFiles = snapshot?.jsonFiles ?? [];
     conversations = snapshot?.conversations ?? [];
     selectedConversationId = conversations[0]?.id ?? null;
+    // The snapshot's conversations are list-only (messages: null) — forget
+    // any ids marked "loaded" by a previous snapshot fetch (e.g. the
+    // pre-login onMount call), or the auto-load reactive will wrongly
+    // believe this fresh, message-less snapshot is already populated.
+    loadedConversationIds.clear();
     selectedJSONIndex = 0;
     jsonPreview = null;
     structureSection = "paths";
     selectedYear = "all";
     selectedCategory = "all";
     selectedType = "all";
-    visibleLimit = 180;
+    searchQuery = "";
     view = "gallery";
     if (jsonFiles.length > 0) {
       await openJSONFile(0);
@@ -370,6 +378,11 @@
     hasMoreMedia = true;
     mediaSources = {};
     mediaLoading = {};
+    // Conversation ids are not globally unique (e.g. "teamsnapchat" is a
+    // system account shared by every user) — clear so the next login's
+    // auto-load reactive doesn't skip a same-id conversation as "already
+    // loaded" from the previous user's session.
+    loadedConversationIds.clear();
   }
 
   // ── Dashboard loading ──
@@ -425,21 +438,41 @@
   }
 
   // ── Infinite scroll / pagination ──
+  function currentMediaFilter() {
+    return {
+      Year: selectedYear,
+      Category: selectedCategory,
+      Type: selectedType,
+      Search: searchQuery.trim(),
+    };
+  }
+
+  // Bumped every time the filter changes and a fresh query is issued.
+  // In-flight requests capture the generation they were issued under and
+  // discard their result if a newer filter has since superseded them —
+  // otherwise a slow "video only" response can land after a fast "all
+  // types" reset and silently clobber it with stale data/counts.
+  let mediaGeneration = 0;
+
   async function loadMediaBatch() {
     if (isLoadingMore || !hasMoreMedia || !selectedPlatform) return;
+    const gen = mediaGeneration;
     isLoadingMore = true;
-    
+
     try {
       const platform = selectedPlatform!;
-      
-      // Get total count first time
+      const filter = currentMediaFilter();
+
+      // Get total count on the first page of a fresh filter.
       if (currentOffset === 0) {
-        try { 
-          totalMediaCount = await GetMediaCount(platform, ""); 
-        } catch(e) {}
+        try {
+          const count = await GetMediaCount(platform, filter);
+          if (gen === mediaGeneration) totalMediaCount = count;
+        } catch (e) {}
       }
-      
-      const items: MediaItem[] = (await GetMediaPaginated(platform, "", currentOffset, pageSize)) ?? [];
+
+      const items: MediaItem[] = (await GetMediaPaginated(platform, filter, currentOffset, pageSize)) ?? [];
+      if (gen !== mediaGeneration) return;
       paginatedMedia = [...paginatedMedia, ...items];
       currentOffset += items.length;
       hasMoreMedia = items.length === pageSize;
@@ -448,6 +481,32 @@
     } finally {
       isLoadingMore = false;
     }
+  }
+
+  // Re-run the paginated query from the top whenever a filter changes.
+  // Debounced for search so we don't hit the DB on every keystroke.
+  let filterReloadTimer: ReturnType<typeof setTimeout> | undefined;
+  function reloadFilteredMedia(immediate = false) {
+    if (!selectedPlatform) return;
+    const run = () => {
+      mediaGeneration += 1;
+      paginatedMedia = [];
+      currentOffset = 0;
+      hasMoreMedia = true;
+      mediaSources = {};
+      mediaLoading = {};
+      // Force-unblock loadMediaBatch's in-flight guard so this newer
+      // request starts immediately rather than waiting for a superseded
+      // one to finish.
+      isLoadingMore = false;
+      loadMediaBatch();
+    };
+    if (immediate) {
+      run();
+      return;
+    }
+    clearTimeout(filterReloadTimer);
+    filterReloadTimer = setTimeout(run, 300);
   }
 
   function triggerLoadMore() {
@@ -601,13 +660,15 @@ onMount(async () => {
     }
   }
 
-  async function setYear(year: string) {
+  function setYear(year: string) {
     selectedYear = selectedYear === year ? "all" : year;
-    visibleLimit = 180;
-    media = (await GetMedia(activePlatform, selectedYear)) ?? [];
-    mediaSources = {};
-    await ensureMediaSources(media.slice(0, 60));
+    reloadFilteredMedia(true);
   }
+
+  // Conversation ids whose full message list has already been requested —
+  // prevents the auto-load reactive from retrying a genuinely empty thread
+  // on every reactive cycle.
+  const loadedConversationIds = new Set<string>();
 
   async function openConversation(id: string) {
     loadingConversation = true;
@@ -615,6 +676,7 @@ onMount(async () => {
     try {
       selectedConversationId = id;
       const full = await GetConversation(activePlatform, id);
+      loadedConversationIds.add(id);
       if (full) {
         conversations = conversations.map((conversation) => (conversation.id === id ? full : conversation));
       }
@@ -633,11 +695,6 @@ onMount(async () => {
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     }
-  }
-
-  async function loadMore() {
-    visibleLimit += 180;
-    await ensureMediaSources(visibleMedia);
   }
 
   async function saveProfileForm() {
@@ -665,6 +722,7 @@ onMount(async () => {
       // Reload platform data for the new user
       mediaSources = {};
       mediaLoading = {};
+      loadedConversationIds.clear();
       await loadPlatform(activePlatform);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
@@ -920,9 +978,9 @@ onMount(async () => {
     {#if view === "gallery"}
       <section class="controls" aria-label="Gallery filters">
         <div class="search-box">
-          <input type="text" placeholder="Search files, categories, dates..." bind:value={searchQuery} bind:this={searchInput} />
+          <input type="text" placeholder="Search files, categories, dates..." bind:value={searchQuery} bind:this={searchInput} on:input={() => reloadFilteredMedia()} />
           {#if searchQuery}
-            <button class="clear-search" on:click={() => (searchQuery = "")}>×</button>
+            <button class="clear-search" on:click={() => { searchQuery = ""; reloadFilteredMedia(true); }}>×</button>
           {/if}
         </div>
 
@@ -937,7 +995,7 @@ onMount(async () => {
         </label>
         <label>
           <span>Category</span>
-          <select bind:value={selectedCategory} on:change={() => (visibleLimit = 180)}>
+          <select bind:value={selectedCategory} on:change={() => reloadFilteredMedia(true)}>
             <option value="all">All categories</option>
             {#each categories as [category, count]}
               <option value={category}>{category} ({formatter.format(count)})</option>
@@ -946,7 +1004,7 @@ onMount(async () => {
         </label>
         <label>
           <span>Type</span>
-          <select bind:value={selectedType} on:change={() => (visibleLimit = 180)}>
+          <select bind:value={selectedType} on:change={() => reloadFilteredMedia(true)}>
             <option value="all">All types</option>
             {#each types as [type, count]}
               <option value={type}>{type} ({formatter.format(count)})</option>
@@ -977,7 +1035,7 @@ onMount(async () => {
 
         <div class="gallery-panel">
           <div class="result-line">
-            Showing {formatter.format(visibleMedia.length)} of {formatter.format(selectedPlatform ? totalMediaCount : filteredMedia.length)} matching files
+            Showing {formatter.format(visibleMedia.length)} of {formatter.format(totalMediaCount)} matching files
           </div>
 
           {#if visibleMedia.length === 0 && !isLoadingMore}
@@ -1007,7 +1065,7 @@ onMount(async () => {
               {/each}
             </div>
 
-            {#if selectedPlatform ? hasMoreMedia : visibleMedia.length < filteredMedia.length}
+            {#if hasMoreMedia}
               <button class="load-more" on:click={triggerLoadMore} disabled={isLoadingMore}>
                 {isLoadingMore ? "Loading..." : `Load more (${paginatedMedia.length} of ${totalMediaCount.toLocaleString()})`}
               </button>

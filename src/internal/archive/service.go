@@ -253,14 +253,15 @@ func (s *Service) GetMedia(platform, year string) ([]types.MediaItem, error) {
 	return out, nil
 }
 
-// GetMediaPaginated returns a page of media items from the store.
-func (s *Service) GetMediaPaginated(platform, year string, offset, limit int64) ([]types.MediaItem, error) {
-	return s.store.MediaPaginated(platform, year, s.activeUserId, offset, limit)
+// GetMediaPaginated returns a page of media items from the store, narrowed
+// by year/category/type/search.
+func (s *Service) GetMediaPaginated(platform string, filter MediaFilter, offset, limit int64) ([]types.MediaItem, error) {
+	return s.store.MediaPaginated(platform, filter, s.activeUserId, offset, limit)
 }
 
-// GetMediaCount returns the total count of media items for a platform.
-func (s *Service) GetMediaCount(platform, year string) (int64, error) {
-	return s.store.MediaCount(platform, year, s.activeUserId)
+// GetMediaCount returns the total count of media items for a platform matching filter.
+func (s *Service) GetMediaCount(platform string, filter MediaFilter) (int64, error) {
+	return s.store.MediaCount(platform, filter, s.activeUserId)
 }
 
 // GetPlatformStats returns aggregate statistics for a platform.

@@ -185,20 +185,21 @@ func (a *App) GetMedia(platform, year string) ([]types.MediaItem, error) {
 	return a.service.GetMedia(platform, year)
 }
 
-// GetMediaPaginated returns a page of media items from the store.
-func (a *App) GetMediaPaginated(platform, year string, offset, limit int64) ([]types.MediaItem, error) {
+// GetMediaPaginated returns a page of media items from the store, narrowed
+// by year/category/type/search.
+func (a *App) GetMediaPaginated(platform string, filter archive.MediaFilter, offset, limit int64) ([]types.MediaItem, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
-	return a.service.GetMediaPaginated(platform, year, offset, limit)
+	return a.service.GetMediaPaginated(platform, filter, offset, limit)
 }
 
-// GetMediaCount returns the total count of media items for a platform.
-func (a *App) GetMediaCount(platform, year string) (int64, error) {
+// GetMediaCount returns the total count of media items for a platform matching filter.
+func (a *App) GetMediaCount(platform string, filter archive.MediaFilter) (int64, error) {
 	if a.initErr != nil {
 		return 0, a.initErr
 	}
-	return a.service.GetMediaCount(platform, year)
+	return a.service.GetMediaCount(platform, filter)
 }
 
 // AppSettings holds frontend preferences persisted per-user.

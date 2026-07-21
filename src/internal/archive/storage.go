@@ -516,17 +516,51 @@ func (s *Store) loadMedia(platform, year string, userId int64) ([]types.MediaIte
 }
 
 // MediaPaginated returns a page of media items for a platform, filtered by year.
-func (s *Store) MediaPaginated(platform, year string, userId, offset, limit int64) ([]types.MediaItem, error) {
+// MediaFilter narrows a media_items query. Empty/"all" fields are ignored.
+// Search matches entry, category, and date (case-insensitive substring).
+type MediaFilter struct {
+	Year     string
+	Category string
+	Type     string
+	Search   string
+}
+
+func (f MediaFilter) apply(query string, args []any) (string, []any) {
+	if f.Year != "" && f.Year != "all" {
+		query += " AND year = ?"
+		args = append(args, f.Year)
+	}
+	if f.Category != "" && f.Category != "all" {
+		query += " AND category = ?"
+		args = append(args, f.Category)
+	}
+	if f.Type != "" && f.Type != "all" {
+		query += " AND type = ?"
+		args = append(args, f.Type)
+	}
+	if f.Search != "" {
+		query += " AND (entry LIKE ? ESCAPE '\\' OR category LIKE ? ESCAPE '\\' OR date LIKE ? ESCAPE '\\')"
+		needle := "%" + escapeLike(f.Search) + "%"
+		args = append(args, needle, needle, needle)
+	}
+	return query, args
+}
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
+
+func (s *Store) MediaPaginated(platform string, filter MediaFilter, userId, offset, limit int64) ([]types.MediaItem, error) {
 	query := `
 		SELECT media_id, zip_index, zip, entry, category, date, year, type, ext, local_path
 		FROM media_items
 		WHERE platform = ? AND user_id = ?
 	`
 	args := []any{platform, userId}
-	if year != "" && year != "all" {
-		query += " AND year = ?"
-		args = append(args, year)
-	}
+	query, args = filter.apply(query, args)
 	query += fmt.Sprintf(" ORDER BY media_id LIMIT %d OFFSET %d", limit, offset)
 
 	rows, err := s.db.Query(query, args...)
@@ -546,14 +580,11 @@ func (s *Store) MediaPaginated(platform, year string, userId, offset, limit int6
 	return out, rows.Err()
 }
 
-// MediaCount returns the total count of media items for a platform, optionally filtered by year.
-func (s *Store) MediaCount(platform, year string, userId int64) (int64, error) {
+// MediaCount returns the total count of media items for a platform matching filter.
+func (s *Store) MediaCount(platform string, filter MediaFilter, userId int64) (int64, error) {
 	query := `SELECT COUNT(*) FROM media_items WHERE platform = ? AND user_id = ?`
 	args := []any{platform, userId}
-	if year != "" && year != "all" {
-		query += " AND year = ?"
-		args = append(args, year)
-	}
+	query, args = filter.apply(query, args)
 
 	var count int64
 	err := s.db.QueryRow(query, args...).Scan(&count)
