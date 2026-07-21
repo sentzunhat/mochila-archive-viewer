@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   color-scheme: light;
   --bg: #fbfaf2;
@@ -7,6 +11,11 @@
   --panel: #fffef8;
   --snap: #fffc00;
   --snap-dark: #cfc600;
+  /* Active platform accent — overridden from App.svelte per platform. */
+  --accent: var(--snap);
+  --accent-dark: var(--snap-dark);
+  --accent-soft: #fffdd9;
+  --accent-ink: #181712;
 }
 
 * {
@@ -34,6 +43,7 @@ header {
   position: sticky;
   top: 0;
   z-index: 10;
+  border-top: 3px solid var(--accent);
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--bg) 94%, white);
   backdrop-filter: blur(16px);
@@ -102,8 +112,9 @@ h2 {
 
 button.active,
 .tabs button.active {
-  border-color: var(--snap-dark);
-  background: var(--snap);
+  border-color: var(--accent-dark);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 main {
@@ -416,8 +427,8 @@ select {
 
 .message.sent {
   align-self: end;
-  border-color: var(--snap-dark);
-  background: #fffdd9;
+  border-color: var(--accent-dark);
+  background: var(--accent-soft);
 }
 
 .message div {

@@ -141,6 +141,44 @@
   let sentinelRef: HTMLElement | null = null;
   let infiniteObserver: IntersectionObserver | null = null;
 
+  // ── Platform theming ──
+  // Brand colors per platform; `accent` variables feed the custom CSS in
+  // style.css, the Tailwind classes are picked up statically from this map.
+  const platformThemes: Record<
+    string,
+    { name: string; accent: string; dark: string; soft: string; ink: string; bar: string; badge: string; card: string }
+  > = {
+    snapchat: {
+      name: "Snapchat",
+      accent: "#fffc00", dark: "#cfc600", soft: "#fffdd9", ink: "#181712",
+      bar: "bg-snapchat",
+      badge: "bg-snapchat text-archive-ink border-snapchat-dark",
+      card: "hover:border-snapchat-dark",
+    },
+    instagram: {
+      name: "Instagram",
+      accent: "#dd2a7b", dark: "#8134af", soft: "#fdeef5", ink: "#ffffff",
+      bar: "bg-gradient-to-r from-[#f58529] via-instagram to-[#515bd4]",
+      badge: "bg-instagram-soft text-instagram border-instagram",
+      card: "hover:border-instagram",
+    },
+    facebook: {
+      name: "Facebook",
+      accent: "#1877f2", dark: "#0e5fcb", soft: "#e9f2fe", ink: "#ffffff",
+      bar: "bg-facebook",
+      badge: "bg-facebook-soft text-facebook border-facebook",
+      card: "hover:border-facebook",
+    },
+  };
+  $: activeTheme = platformThemes[activePlatform] ?? platformThemes.snapchat;
+  $: if (typeof document !== "undefined" && activeTheme) {
+    const s = document.documentElement.style;
+    s.setProperty("--accent", activeTheme.accent);
+    s.setProperty("--accent-dark", activeTheme.dark);
+    s.setProperty("--accent-soft", activeTheme.soft);
+    s.setProperty("--accent-ink", activeTheme.ink);
+  }
+
   const formatter = new Intl.NumberFormat();
   $: storeRoot = appState.storePath ? appState.storePath.replace("/database.sqlite", "") : "~/.mochila";
   $: providerRoot = `${storeRoot}/indexed/providers/${activePlatform}`;
@@ -322,6 +360,7 @@
     profileFullName = "";
     error = null;
     authError = "";
+    dashboardNotice = "";
     loginUsername = "";
     loginFullname = "";
     paginatedMedia = [];
@@ -355,7 +394,11 @@
     }
   }
 
+  let dashboardNotice = "";
+
   async function selectPlatform(platform: string) {
+    dashboardNotice = "";
+    const prevPlatform = activePlatform;
     selectedPlatform = platform;
     showDashboard = false;
     paginatedMedia = [];
@@ -363,10 +406,20 @@
     currentOffset = 0;
     hasMoreMedia = true;
     mediaLoading = {};
-    // Refresh the snapshot for the active user before paging media —
-    // the onMount snapshot may belong to a previously active user.
-    await loadPlatform(platform);
-    await loadMediaBatch();
+    try {
+      // Refresh the snapshot for the active user before paging media —
+      // the onMount snapshot may belong to a previously active user.
+      await loadPlatform(platform);
+      await loadMediaBatch();
+    } catch (e) {
+      // e.g. platform not supported by the backend yet — stay on the dashboard.
+      activePlatform = prevPlatform;
+      selectedPlatform = null;
+      showDashboard = true;
+      error = null;
+      const name = platformThemes[platform]?.name ?? platform;
+      dashboardNotice = `${name} isn't supported yet — Snapchat is the only live provider for now.`;
+    }
   }
 
   // ── Infinite scroll / pagination ──
@@ -644,43 +697,47 @@ onMount(async () => {
   </main>
 {:else if showLoginScreen}
   <!-- LOGIN SCREEN -->
-  <main class="center">
-    <section class="login-card">
-      <div style="text-align:center;margin-bottom:2rem;">
-        <h1 style="font-size:2rem;margin-bottom:0.5rem;">Mochila Archive Viewer</h1>
-        <p class="subtitle" style="max-width:300px;margin:0 auto;">Personal data archive explorer</p>
+  <main class="min-h-screen flex items-center justify-center bg-archive-bg px-4">
+    <section class="w-full max-w-sm bg-archive-panel border border-archive-line rounded-2xl shadow-sm p-8">
+      <div class="text-center mb-8">
+        <div class="mx-auto mb-4 h-12 w-12 rounded-2xl bg-snapchat border border-snapchat-dark flex items-center justify-center text-2xl">🎒</div>
+        <h1 class="text-2xl font-extrabold text-archive-ink m-0 mb-1">Mochila Archive Viewer</h1>
+        <p class="text-sm text-archive-muted m-0">Personal data archive explorer</p>
       </div>
-      
+
       {#if authError}
-        <p style="color:#ef4444;margin-bottom:1rem;text-align:center;">{authError}</p>
+        <p class="mb-4 text-center text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{authError}</p>
       {/if}
-      
-      <form on:submit|preventDefault={handleLogin}>
-        <div class="form-group" style="margin-bottom:1rem;">
-          <label for="login-username" style="display:block;margin-bottom:0.25rem;font-weight:600;">Username</label>
-          <input 
+
+      <form on:submit|preventDefault={handleLogin} class="flex flex-col gap-4">
+        <div>
+          <label for="login-username" class="block mb-1 text-sm font-semibold text-archive-ink">Username</label>
+          <input
             id="login-username"
-            type="text" 
+            type="text"
             bind:value={loginUsername}
             placeholder="Enter your username"
             autocomplete="username"
-            style="width:100%;padding:0.5rem;border:1px solid #374151;border-radius:0.375rem;background:#1f2937;color:white;"
+            class="w-full px-3 py-2 rounded-lg border border-archive-line bg-white text-archive-ink placeholder:text-archive-muted/70 focus:outline-none focus:ring-2 focus:ring-snapchat-dark"
           />
         </div>
-        
-        <div class="form-group" style="margin-bottom:1.5rem;">
-          <label for="login-fullname" style="display:block;margin-bottom:0.25rem;font-weight:600;">Full Name (optional)</label>
-          <input 
+
+        <div>
+          <label for="login-fullname" class="block mb-1 text-sm font-semibold text-archive-ink">Full Name (optional)</label>
+          <input
             id="login-fullname"
-            type="text" 
+            type="text"
             bind:value={loginFullname}
             placeholder="Enter your full name"
             autocomplete="name"
-            style="width:100%;padding:0.5rem;border:1px solid #374151;border-radius:0.375rem;background:#1f2937;color:white;"
+            class="w-full px-3 py-2 rounded-lg border border-archive-line bg-white text-archive-ink placeholder:text-archive-muted/70 focus:outline-none focus:ring-2 focus:ring-snapchat-dark"
           />
         </div>
-        
-        <button type="submit" class="btn-primary" style="width:100%;padding:0.75rem;font-size:1rem;">
+
+        <button
+          type="submit"
+          class="mt-2 w-full py-2.5 rounded-lg bg-snapchat text-archive-ink font-extrabold border border-snapchat-dark hover:brightness-95 transition"
+        >
           Sign In
         </button>
       </form>
@@ -688,18 +745,24 @@ onMount(async () => {
   </main>
 {:else if showDashboard}
   <!-- PLATFORM DASHBOARD -->
-  <main class="dashboard-main">
-    <div style="max-width:960px;margin:0 auto;padding:2rem;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;">
+  <main class="min-h-screen bg-archive-bg">
+    <div class="max-w-4xl mx-auto p-8">
+      <div class="flex justify-between items-center mb-8">
         <div>
-          <h1 style="font-size:1.875rem;margin-bottom:0.25rem;">Mochila Archive Viewer</h1>
-          <p class="subtitle">Select a platform to explore your archive</p>
+          <h1 class="text-3xl font-extrabold text-archive-ink m-0 mb-1">Mochila Archive Viewer</h1>
+          <p class="text-archive-muted m-0">Select a platform to explore your archive</p>
         </div>
-        <button on:click={handleLogout} class="btn-secondary" style="padding:0.5rem 1rem;">
+        <button
+          on:click={handleLogout}
+          class="px-4 py-2 rounded-lg border border-archive-line bg-archive-panel text-archive-ink font-semibold hover:bg-white transition"
+        >
           Logout
         </button>
       </div>
-      
+
+      {#if dashboardNotice}
+        <p class="mb-6 rounded-lg border border-archive-line bg-archive-panel px-4 py-3 text-sm text-archive-muted">{dashboardNotice}</p>
+      {/if}
       {#if platformStatsList.length === 0}
         <section class="empty">
           <h2>No platforms available yet</h2>
@@ -707,48 +770,53 @@ onMount(async () => {
           <button class="load-more" on:click={() => { showDashboard = false; }}>Open archive explorer</button>
         </section>
       {/if}
-      <div class="platform-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;">
+      <div class="grid gap-6" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
         {#each platformStatsList as stat}
-          <div 
-            class="platform-card" 
+          {@const theme = platformThemes[stat.id] ?? platformThemes.snapchat}
+          <div
             tabindex="0"
             role="button"
             aria-label="Select {stat.name} platform"
             on:click={() => selectPlatform(stat.id)}
             on:keydown={(e) => e.key === "Enter" && selectPlatform(stat.id)}
-            style="background:#1f2937;border:1px solid #374151;border-radius:0.75rem;padding:1.5rem;cursor:pointer;transition:all 0.2s;"
+            class="overflow-hidden rounded-2xl border border-archive-line bg-archive-panel cursor-pointer transition shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-archive-line {theme.card}"
           >
-            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:1rem;">
-              <h2 style="font-size:1.25rem;text-transform:capitalize;">{stat.name}</h2>
-              <span class="badge" style="padding:0.25rem 0.75rem;border-radius:9999px;font-size:0.75rem;{ stat.status === 'indexed' ? 'background:#065f46;color:#6ee7b7;' : 'background:#374151;color:#9ca3af;' }">
-                {stat.status}
-              </span>
+            <div class="h-1.5 {theme.bar}"></div>
+            <div class="p-6">
+              <div class="flex justify-between items-start mb-4">
+                <h2 class="text-xl font-extrabold text-archive-ink capitalize m-0">{stat.name}</h2>
+                <span
+                  class="px-3 py-1 rounded-full text-xs font-semibold border {stat.status === 'indexed' ? theme.badge : 'bg-archive-bg text-archive-muted border-archive-line'}"
+                >
+                  {stat.status}
+                </span>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <div class="text-2xl font-extrabold text-archive-ink">{stat.mediaCount.toLocaleString()}</div>
+                  <div class="text-xs text-archive-muted">Media Items</div>
+                </div>
+                <div>
+                  <div class="text-2xl font-extrabold text-archive-ink">{stat.zipCount}</div>
+                  <div class="text-xs text-archive-muted">Zips</div>
+                </div>
+                <div>
+                  <div class="text-lg font-bold text-archive-ink">{stat.imageCount.toLocaleString()}</div>
+                  <div class="text-xs text-archive-muted">Photos</div>
+                </div>
+                <div>
+                  <div class="text-lg font-bold text-archive-ink">{stat.videoCount.toLocaleString()}</div>
+                  <div class="text-xs text-archive-muted">Videos</div>
+                </div>
+              </div>
+
+              {#if stat.conversationCount > 0}
+                <div class="mt-4 pt-3 border-t border-archive-line text-sm text-archive-muted">
+                  {stat.conversationCount.toLocaleString()} conversations · {stat.jsonFileCount.toLocaleString()} JSON files
+                </div>
+              {/if}
             </div>
-            
-            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;margin-top:1rem;">
-              <div>
-                <div style="font-size:1.5rem;font-weight:700;color:#f3f4f6;">{stat.mediaCount.toLocaleString()}</div>
-                <div style="font-size:0.75rem;color:#9ca3af;">Media Items</div>
-              </div>
-              <div>
-                <div style="font-size:1.25rem;font-weight:600;color:#f3f4f6;">{stat.zipCount}</div>
-                <div style="font-size:0.75rem;color:#9ca3af;">Zips</div>
-              </div>
-              <div>
-                <div style="font-size:1rem;font-weight:600;color:#60a5fa;">{stat.imageCount.toLocaleString()}</div>
-                <div style="font-size:0.75rem;color:#9ca3af;">Photos</div>
-              </div>
-              <div>
-                <div style="font-size:1rem;font-weight:600;color:#f87171;">{stat.videoCount.toLocaleString()}</div>
-                <div style="font-size:0.75rem;color:#9ca3af;">Videos</div>
-              </div>
-            </div>
-            
-            {#if stat.conversationCount > 0}
-              <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #374151;font-size:0.875rem;color:#9ca3af;">
-                {stat.conversationCount.toLocaleString()} conversations · {stat.jsonFileCount.toLocaleString()} JSON files
-              </div>
-            {/if}
           </div>
         {/each}
       </div>
@@ -757,7 +825,7 @@ onMount(async () => {
 {:else if !summary}
   <main class="center">
     <section class="empty">
-      <h1>Indexing Snapchat export...</h1>
+      <h1>Indexing {activeTheme.name} export...</h1>
       <p>Your selected zips and indexed cache live in <code>{appState.storePath || "~/.mochila/database.sqlite"}</code>.</p>
       <p>
         {#if selected.length === 0}
@@ -776,7 +844,10 @@ onMount(async () => {
   <header>
     <div class="topbar">
       <div>
-        <p class="eyebrow">Snapchat export loaded</p>
+        <p class="eyebrow flex items-center gap-2">
+          <span class="inline-block h-2.5 w-2.5 rounded-full border border-archive-line {activeTheme.bar}"></span>
+          {activeTheme.name} export loaded
+        </p>
         <h1>Mochila</h1>
         <p class="subtitle">
           {summary.zipCount} zip files · {formatter.format(summary.mediaCount)} media items · stored in <code>{appState.storePath}</code>
