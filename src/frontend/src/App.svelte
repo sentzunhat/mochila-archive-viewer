@@ -216,6 +216,25 @@
     return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
   }
 
+  // Snapchat's export often has no retained text for ephemeral chat types
+  // (expired snaps, stories, location shares, etc — confirmed against the
+  // live archive, not a parsing gap). Label these distinctly from real
+  // message content so they don't read as if the user actually typed "TEXT".
+  const messageTypeLabels: Record<string, string> = {
+    TEXT: "No text saved",
+    MEDIA: "Media (no caption)",
+    SHARE: "Shared content",
+    SHARESAVEDSTORY: "Shared story",
+    STICKER: "Sticker",
+    STATUS: "Status update",
+    NOTE: "Voice note",
+    LOCATION: "Location share",
+    STATUSERASEDMESSAGE: "Message expired",
+  };
+  function messageTypeLabel(type: string) {
+    return messageTypeLabels[type] ?? (type || "No content saved");
+  }
+
   function mediaName(item: MediaItem) {
     return item.entry.split("/").at(-1) ?? item.entry;
   }
@@ -1190,7 +1209,7 @@ onMount(async () => {
                   {#if message.content}
                     <p>{message.content}</p>
                   {:else if !message.mediaId}
-                    <p>{message.mediaType || "Media / attachment"}</p>
+                    <p class="italic text-archive-muted">{messageTypeLabel(message.mediaType)}</p>
                   {/if}
                   {#if message.mediaId != null}
                     <button
@@ -1316,7 +1335,7 @@ onMount(async () => {
 
   {#if selectedMedia}
     <div class="modal-backdrop" role="presentation" on:click={() => (selectedMedia = null)}>
-      <div class="media-modal" role="dialog" aria-modal="true" aria-label={mediaName(selectedMedia)} tabindex="-1" on:keydown={(e) => e.key === "Escape" && (selectedMedia = null)}>
+      <div class="media-modal" role="dialog" aria-modal="true" aria-label={mediaName(selectedMedia)} tabindex="-1" on:click|stopPropagation on:keydown={(e) => e.key === "Escape" && (selectedMedia = null)}>
         <button class="close-button" on:click={() => (selectedMedia = null)} aria-label="Close">×</button>
         <div class="modal-media">
           {#if selectedMedia.type === "image" && sourceFor(selectedMedia)}
