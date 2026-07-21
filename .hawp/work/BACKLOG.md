@@ -52,8 +52,8 @@ Items below are compoundable: each can be done independently or together as a ba
 | 12  | plan-ready  | Frontend design system — tokens/spacing/typography  | [active/012.md](./active/012.md) |
 | 13  | in-progress | Auto-update: version+icon+CI done, update check next | [active/013.md](./active/013.md) |
 | 14  | done        | Browser-driven UI smoke test of the dev build       | [active/014.md](./active/014.md) |
-| 15  | inbox       | Legacy data ownership — user_id 0/1 cleanup         | [active/015.md](./active/015.md) |
-| 16  | in-progress | Snapchat UI parity+polish vs POC (gates IG/FB UI)   | [active/016.md](./active/016.md) |
+| 15  | done        | Legacy data ownership — user_id 0/1 cleanup         | [active/015.md](./active/015.md) |
+| 16  | done        | Snapchat UI parity+polish vs POC (gates IG/FB UI)   | [active/016.md](./active/016.md) |
 | 17  | done        | Link chat message media to indexed media items      | [active/017.md](./active/017.md) |
 
 ---
