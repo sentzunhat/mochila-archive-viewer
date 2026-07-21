@@ -19,6 +19,7 @@
     IndexArchives,
     SaveProfile,
     LogoutProfile,
+    AppVersion,
   } from "../wailsjs/go/appshell/App.js";
 
   type ProviderCard = { id: string; name: string; status: string; description: string; supported: boolean };
@@ -395,6 +396,7 @@
   }
 
   let dashboardNotice = "";
+  let appVersion = "dev";
 
   async function selectPlatform(platform: string) {
     dashboardNotice = "";
@@ -493,6 +495,7 @@ onMount(async () => {
       appState = await GetFrontendState();
       profileUsername = appState.profile.username ?? "";
       profileFullName = appState.profile.fullName ?? "";
+      try { appVersion = await AppVersion(); } catch (e) {}
       
       // Load user settings
       const settings = await GetAppSettings();
@@ -1242,8 +1245,8 @@ onMount(async () => {
       <section class="settings-section">
         <h3>About</h3>
         <dl class="settings-list">
-          <div><dt>Version</dt><dd>Mochila v1.0.0</dd></div>
-          <div><dt>Backend</dt><dd>Go 1.26 with Wails v2</dd></div>
+          <div><dt>Version</dt><dd>Mochila {appVersion}</dd></div>
+          <div><dt>Backend</dt><dd>Go with Wails v2</dd></div>
           <div><dt>Storage</dt><dd>{appState.storePath || "~/.mochila/database.sqlite"}</dd></div>
         </dl>
       </section>

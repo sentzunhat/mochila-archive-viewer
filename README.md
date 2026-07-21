@@ -24,6 +24,21 @@ cd src && go test ./...
 cd src/frontend && npm run build
 ```
 
+## Releases
+
+Releases are built by CI (`.github/workflows/release.yml`) when a version tag is pushed:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow builds macOS (Apple Silicon + Intel) and Windows binaries with the tag embedded as the app version (visible in Settings → About), and attaches them to a **draft** GitHub Release — review and publish it from the Releases page.
+
+- App identity lives in `src/wails.json` (`info` block) and `src/build/darwin/Info.plist` (bundle id `com.sentzunhat.mochila-archive-viewer`); the app icon is `src/build/appicon.png`.
+- Binaries are currently unsigned: on macOS, downloaded builds need right-click → Open the first time (Gatekeeper).
+- An in-app update check against GitHub Releases is planned — see `.hawp/work/active/013.md`.
+
 ## Notes
 
 - The current Wails shell in `src/` already carries over the warm archive theme from the prototype.

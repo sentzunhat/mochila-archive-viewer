@@ -9,5 +9,12 @@
   "author": {
     "name": "Diego Beltran",
     "email": "beltrd@gmail.com"
+  },
+  "info": {
+    "productName": "Mochila Archive Viewer",
+    "productVersion": "0.1.0",
+    "companyName": "sentzunhat",
+    "copyright": "© 2026 Diego Beltran. Open source under the MPL-2.0 License.",
+    "comments": "Local-first viewer for exported social data archives (Snapchat, Instagram, Facebook)."
   }
 }

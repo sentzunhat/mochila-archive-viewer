@@ -21,6 +21,20 @@ type App struct {
 	ctx     context.Context
 	service *archive.Service
 	initErr error
+	version string
+}
+
+// SetVersion stores the build version injected from main via -ldflags.
+func (a *App) SetVersion(v string) {
+	a.version = v
+}
+
+// AppVersion returns the build version to the frontend.
+func (a *App) AppVersion() string {
+	if a.version == "" {
+		return "dev"
+	}
+	return a.version
 }
 
 type FrontendState struct {
