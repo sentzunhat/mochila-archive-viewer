@@ -15,6 +15,7 @@
     GetConversation,
     GetJSONPreview,
     GetMediaSource,
+    GetMediaItem,
     SelectArchiveZips,
     IndexArchives,
     SaveProfile,
@@ -54,6 +55,8 @@
     isSender: boolean;
     isSaved: boolean;
     mediaIds: string;
+    mediaId?: number;
+    linkedMediaType?: string;
   };
   type Conversation = {
     id: string;
@@ -291,6 +294,40 @@
     conversations.length > 0
   ) {
     openConversation(selectedConversationId);
+  }
+
+  // Reactive: fetch thumbnail sources for the open conversation's linked
+  // media (message.mediaId, resolved backend-side — see 017). Shares the
+  // mediaSources/mediaLoading cache with the gallery, so a thumbnail already
+  // seen there loads instantly here too.
+  $: if (!loading && selectedConversation?.messages?.length) {
+    const unsourced = selectedConversation.messages
+      .filter((m): m is ChatMessage & { mediaId: number } => m.mediaId != null)
+      .filter((m) => !mediaSources[m.mediaId] && mediaLoading[m.mediaId] !== "resolved" && mediaLoading[m.mediaId] !== "pending")
+      .map((m) => ({ id: m.mediaId } as MediaItem));
+    if (unsourced.length > 0) {
+      ensureMediaSources(unsourced);
+    }
+  }
+
+  // Media items opened from a chat message, keyed by id, so re-opening the
+  // same one doesn't re-fetch its metadata.
+  const messageMediaCache: Record<number, MediaItem> = {};
+
+  async function openMessageMedia(id: number) {
+    if (messageMediaCache[id]) {
+      selectedMedia = messageMediaCache[id];
+      return;
+    }
+    try {
+      const item = await GetMediaItem(activePlatform, id);
+      if (item) {
+        messageMediaCache[id] = item;
+        selectedMedia = item;
+      }
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    }
   }
 
   async function retryFailedSources(items: MediaItem[]) {
@@ -1150,12 +1187,30 @@ onMount(async () => {
                     <strong>{message.from || (message.isSender ? "You" : selectedConversation.title)}</strong>
                     <span>{message.created}</span>
                   </div>
-                  <p>{message.content || message.mediaType || "Media / attachment"}</p>
-                  {#if message.isSaved || message.mediaIds}
-                    <small>
-                      {message.isSaved ? "saved" : ""}
-                      {message.mediaIds ? ` media: ${message.mediaIds}` : ""}
-                    </small>
+                  {#if message.content}
+                    <p>{message.content}</p>
+                  {:else if !message.mediaId}
+                    <p>{message.mediaType || "Media / attachment"}</p>
+                  {/if}
+                  {#if message.mediaId != null}
+                    <button
+                      class="mt-2 block w-full max-w-[220px] overflow-hidden rounded-lg border border-archive-line bg-archive-bg"
+                      on:click={() => openMessageMedia(message.mediaId)}
+                      aria-label="Open attached media"
+                    >
+                      {#if mediaSources[message.mediaId]}
+                        {#if message.linkedMediaType === "video"}
+                          <video preload="metadata" muted class="block max-h-56 w-full object-cover" src={mediaSources[message.mediaId]}></video>
+                        {:else}
+                          <img loading="lazy" class="block max-h-56 w-full object-cover" src={mediaSources[message.mediaId]} alt="Attached media" />
+                        {/if}
+                      {:else}
+                        <span class="block px-3 py-6 text-center text-xs text-archive-muted">Loading media…</span>
+                      {/if}
+                    </button>
+                  {/if}
+                  {#if message.isSaved}
+                    <small>saved</small>
                   {/if}
                 </article>
               {/each}

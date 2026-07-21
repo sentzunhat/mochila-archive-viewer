@@ -54,7 +54,7 @@ Items below are compoundable: each can be done independently or together as a ba
 | 14  | done        | Browser-driven UI smoke test of the dev build       | [active/014.md](./active/014.md) |
 | 15  | inbox       | Legacy data ownership — user_id 0/1 cleanup         | [active/015.md](./active/015.md) |
 | 16  | in-progress | Snapchat UI parity+polish vs POC (gates IG/FB UI)   | [active/016.md](./active/016.md) |
-| 17  | plan-ready  | Link chat message media to indexed media items      | [active/017.md](./active/017.md) |
+| 17  | done        | Link chat message media to indexed media items      | [active/017.md](./active/017.md) |
 
 ---
 

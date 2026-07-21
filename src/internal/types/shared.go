@@ -38,6 +38,14 @@ type ChatMessage struct {
 	IsSender  bool   `json:"isSender"`
 	IsSaved   bool   `json:"isSaved"`
 	MediaIDs  string `json:"mediaIds"`
+	// MediaID is the resolved media_items.media_id this message's first
+	// media_ids token matches, or nil when it couldn't be resolved
+	// (deleted/unindexed export, sticker, etc).
+	MediaID *int `json:"mediaId,omitempty"`
+	// LinkedMediaType is the resolved media item's type ("image"/"video"),
+	// set alongside MediaID — lets the UI pick <img> vs <video> without a
+	// second lookup per message.
+	LinkedMediaType string `json:"linkedMediaType,omitempty"`
 }
 
 type Index struct {

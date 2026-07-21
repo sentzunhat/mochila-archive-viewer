@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"mochila-archive-viewer/src/internal/types"
@@ -515,6 +516,24 @@ func (s *Store) loadMedia(platform, year string, userId int64) ([]types.MediaIte
 	return out, rows.Err()
 }
 
+// MediaItemByID looks up a single media item by its numeric id, scoped to
+// platform + user. Used to resolve a chat message's linked media for display.
+func (s *Store) MediaItemByID(platform string, id int, userId int64) (*types.MediaItem, error) {
+	var item types.MediaItem
+	err := s.db.QueryRow(`
+		SELECT media_id, zip_index, zip, entry, category, date, year, type, ext, local_path
+		FROM media_items
+		WHERE platform = ? AND user_id = ? AND media_id = ?
+	`, platform, userId, id).Scan(&item.ID, &item.ZipIndex, &item.Zip, &item.Entry, &item.Category, &item.Date, &item.Year, &item.Type, &item.Ext, &item.LocalPath)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
 // MediaPaginated returns a page of media items for a platform, filtered by year.
 // MediaFilter narrows a media_items query. Empty/"all" fields are ignored.
 // Search matches entry, category, and date (case-insensitive substring).
@@ -653,6 +672,17 @@ func (s *Store) loadJSONFiles(platform string, userId int64) ([]types.JsonFileRe
 }
 
 func (s *Store) loadConversations(platform string, includeMessages bool, userId int64) ([]types.Conversation, error) {
+	// Built once (not per-conversation) so opening a conversation with
+	// hundreds of media messages doesn't scan media_items hundreds of times.
+	var mediaIndex map[string]mediaRef
+	if includeMessages {
+		var err error
+		mediaIndex, err = s.mediaTokenIndex(platform, userId)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	rows, err := s.db.Query(`
 		SELECT conversation_id, title, message_count, saved_count, media_count, last_created
 		FROM conversations
@@ -671,7 +701,7 @@ func (s *Store) loadConversations(platform string, includeMessages bool, userId 
 			return nil, err
 		}
 		if includeMessages {
-			convo.Messages, err = s.loadMessages(platform, convo.ID, userId)
+			convo.Messages, err = s.loadMessages(platform, convo.ID, userId, mediaIndex)
 			if err != nil {
 				return nil, err
 			}
@@ -681,7 +711,51 @@ func (s *Store) loadConversations(platform string, includeMessages bool, userId 
 	return out, rows.Err()
 }
 
-func (s *Store) loadMessages(platform, conversationID string, userId int64) ([]types.ChatMessage, error) {
+// chatMediaTokenPattern strips a leading "YYYY-MM-DD_" date prefix, as used
+// by Snapchat's raw export filenames (see snapchat.extractDate).
+var chatMediaTokenPattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}_(.+)$`)
+
+// mediaEntryToken extracts the opaque blob id from a media_items.entry path
+// (e.g. "chat_media/2019-04-01_b~EiQSF....jpg" -> "b~EiQSF...") so it can be
+// matched against a chat message's media_ids token.
+func mediaEntryToken(entry string) string {
+	base := filepath.Base(entry)
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	if m := chatMediaTokenPattern.FindStringSubmatch(base); m != nil {
+		return m[1]
+	}
+	return base
+}
+
+type mediaRef struct {
+	ID   int
+	Type string
+}
+
+// mediaTokenIndex maps every media item's blob-id token to its media_id and
+// type, for resolving chat message media references to indexed media
+// (the type is needed to render an <img> vs <video> without a second
+// round-trip per message).
+func (s *Store) mediaTokenIndex(platform string, userId int64) (map[string]mediaRef, error) {
+	rows, err := s.db.Query(`SELECT media_id, entry, type FROM media_items WHERE platform = ? AND user_id = ?`, platform, userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	idx := make(map[string]mediaRef)
+	for rows.Next() {
+		var ref mediaRef
+		var entry string
+		if err := rows.Scan(&ref.ID, &entry, &ref.Type); err != nil {
+			return nil, err
+		}
+		idx[mediaEntryToken(entry)] = ref
+	}
+	return idx, rows.Err()
+}
+
+func (s *Store) loadMessages(platform, conversationID string, userId int64, mediaIndex map[string]mediaRef) ([]types.ChatMessage, error) {
 	rows, err := s.db.Query(`
 		SELECT from_name, content, media_type, created, is_sender, is_saved, media_ids
 		FROM messages
@@ -702,6 +776,16 @@ func (s *Store) loadMessages(platform, conversationID string, userId int64) ([]t
 		}
 		msg.IsSender = isSender == 1
 		msg.IsSaved = isSaved == 1
+		if msg.MediaIDs != "" {
+			// media_ids is " | "-delimited; only the first token has been
+			// confirmed to match a media_items filename (see 017).
+			token := strings.TrimSpace(strings.SplitN(msg.MediaIDs, "|", 2)[0])
+			if ref, ok := mediaIndex[token]; ok {
+				mediaID := ref.ID
+				msg.MediaID = &mediaID
+				msg.LinkedMediaType = ref.Type
+			}
+		}
 		out = append(out, msg)
 	}
 	return out, rows.Err()

@@ -578,6 +578,15 @@ func (s *Service) AvailableUsers() ([]UserEntry, error) {
     return s.store.AvailableUsers()
 }
 
+// GetMediaItem looks up a single media item by id directly from the store,
+// scoped to the active user. Unlike MediaItem, this does not depend on the
+// in-memory platform cache being populated with a matching-index slice —
+// used to resolve media linked from a chat message, which may reference an
+// id outside the currently loaded gallery page.
+func (s *Service) GetMediaItem(platform string, id int) (*types.MediaItem, error) {
+	return s.store.MediaItemByID(platform, id, s.activeUserId)
+}
+
 func (s *Service) MediaSource(platform string, id int) (string, error) {
 	item := s.MediaItem(platform, id)
 	if item == nil {

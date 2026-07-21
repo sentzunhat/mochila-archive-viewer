@@ -261,6 +261,15 @@ func (a *App) GetConversation(platform, id string) (*types.Conversation, error) 
 	return a.service.GetConversation(platform, id)
 }
 
+// GetMediaItem returns a single media item's metadata by id, for opening the
+// media modal from a chat message's linked media.
+func (a *App) GetMediaItem(platform string, id int) (*types.MediaItem, error) {
+	if a.initErr != nil {
+		return nil, a.initErr
+	}
+	return a.service.GetMediaItem(platform, id)
+}
+
 func (a *App) GetJSONFiles(platform string) ([]types.JsonFileRef, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
