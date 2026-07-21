@@ -47,7 +47,12 @@ Items below are compoundable: each can be done independently or together as a ba
 | 7   | done        | Match POC UI structure in new Go implementation     | [active/007.md](./active/007.md) |
 | 8   | done        | Fix media source loading gaps across views          | [active/008.md](./active/008.md) |
 | 9   | parked      | Multi-platform provider scaffolding — investigate   | [active/009.md](./active/009.md) |
-| 10   | done        | Multi-user isolation — wire profile to indexed data | [active/010.md](./active/010.md) | [eb2c321](https://github.com/sentzunhat/mochila-archive-viewer/commit/eb2c321)
+| 10  | done        | Multi-user isolation — wire profile to indexed data | [active/010.md](./active/010.md) |
+| 11  | done        | Profile management — multi-user creation/switching  | [active/011.md](./active/011.md) |
+| 12  | plan-ready  | Frontend design system — tokens/spacing/typography  | [active/012.md](./active/012.md) |
+| 13  | inbox       | Auto-update support for packaged app                | [active/013.md](./active/013.md) |
+| 14  | done        | Browser-driven UI smoke test of the dev build       | [active/014.md](./active/014.md) |
+| 15  | inbox       | Legacy data ownership — user_id 0/1 cleanup         | [active/015.md](./active/015.md) |
 
 ---
 

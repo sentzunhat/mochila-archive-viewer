@@ -61,7 +61,7 @@ func (a *App) GetFrontendState() FrontendState {
 	if a.service != nil {
 		providers = a.service.ProviderCards()
 		var userId int64 = 1
-		if p, err := a.service.ActiveUser(); err == nil && p != nil {
+		if p, err := a.service.ActiveUser(); err == nil && p != nil && p.ID > 0 {
 			profile = *p
 			userId = p.ID
 		} else if loadedProfile, err := a.service.LoadProfile(); err == nil && loadedProfile != nil {

@@ -85,7 +85,11 @@ func NewService() (*Service, error) {
 }
 
 func (s *Service) SetActiveUser(userId int64) {
-	s.activeUserId = userId
+	if s.activeUserId != userId {
+		s.activeUserId = userId
+		// Cached platform state belongs to the previous user; force a reload.
+		s.platforms = make(map[string]*PlatformState)
+	}
 }
 
 func (s *Service) SelectUser(userId int64) (*Profile, error) {
@@ -93,7 +97,7 @@ func (s *Service) SelectUser(userId int64) (*Profile, error) {
 	if err != nil || p.ID == 0 {
 		return &Profile{}, err
 	}
-	s.activeUserId = userId
+	s.SetActiveUser(userId)
 	return p, nil
 }
 
@@ -537,20 +541,26 @@ func (s *Service) SaveProfile(profile Profile) (*Profile, error) {
 	if s.store == nil {
 		return nil, errors.New("archive store is unavailable")
 	}
-	if err := s.store.SaveProfile(profile); err != nil {
+	id, err := s.store.SaveProfile(profile)
+	if err != nil {
 		return nil, err
 	}
-	return s.store.LoadProfile()
+	if profile.LoggedIn {
+		s.SetActiveUser(id)
+	}
+	return s.store.GetProfileByID(id)
 }
 
 func (s *Service) Logout() (*Profile, error) {
-    if s.store == nil {
-        return nil, errors.New("archive store is unavailable")
-    }
-    if err := s.store.Logout(); err != nil {
-        return nil, err
-    }
-    return s.store.ActiveUser()
+	if s.store == nil {
+		return nil, errors.New("archive store is unavailable")
+	}
+	if err := s.store.Logout(); err != nil {
+		return nil, err
+	}
+	// Drop per-user cached platform state so the next login reloads cleanly.
+	s.platforms = make(map[string]*PlatformState)
+	return s.store.ActiveUser()
 }
 
 func (s *Service) ActiveUser() (*Profile, error) {

@@ -218,7 +218,7 @@
             mediaLoading[item.id] = "failed";
           }
         } catch (caught) {
-          error = caught instanceof Error ? caught.message : String(caught);
+          // A single tile failing to load should not take down the whole app.
           mediaLoading[item.id] = "failed";
         }
       }),
@@ -290,7 +290,7 @@
     selectedCategory = "all";
     selectedType = "all";
     visibleLimit = 180;
-    view = summary ? "gallery" : "gallery";
+    view = "gallery";
     if (jsonFiles.length > 0) {
       await openJSONFile(0);
     }
@@ -311,9 +311,16 @@
   }
 
   async function handleLogout() {
-    try { await LogoutProfile(); } catch(e) {}
+    try {
+      const nextProfile = await LogoutProfile();
+      appState = { ...appState, profile: nextProfile };
+    } catch (e) {}
     showLoginScreen = true;
     showDashboard = false;
+    profileOpen = false;
+    profileUsername = "";
+    profileFullName = "";
+    error = null;
     authError = "";
     loginUsername = "";
     loginFullname = "";
@@ -328,13 +335,13 @@
   // ── Dashboard loading ──
   async function loadPlatformDashboard() {
     try {
-      platformStatsList = [];
+      const nextStats: PlatformStatItem[] = [];
       const platforms = ['snapchat', 'instagram', 'facebook'];
       for (const p of platforms) {
         let stats: any;
         try { stats = await GetPlatformStats(p); } catch(e) { continue; }
         if (stats) {
-          platformStatsList.push({
+          nextStats.push({
             id: p, name: p.charAt(0).toUpperCase() + p.slice(1), status: stats.mediaCount > 0 ? 'indexed' : 'empty',
             mediaCount: Number(stats.mediaCount || 0), imageCount: Number(stats.imageCount || 0), videoCount: Number(stats.videoCount || 0),
             zipCount: Number(stats.zipCount || 0), conversationCount: Number(stats.conversationCount || 0), 
@@ -342,6 +349,7 @@
           });
         }
       }
+      platformStatsList = nextStats;
     } catch (e) {
       console.error("Failed to load dashboard stats:", e);
     }
@@ -349,12 +357,15 @@
 
   async function selectPlatform(platform: string) {
     selectedPlatform = platform;
+    showDashboard = false;
     paginatedMedia = [];
     totalMediaCount = 0;
     currentOffset = 0;
     hasMoreMedia = true;
-    mediaSources = {};
     mediaLoading = {};
+    // Refresh the snapshot for the active user before paging media —
+    // the onMount snapshot may belong to a previously active user.
+    await loadPlatform(platform);
     await loadMediaBatch();
   }
 
@@ -373,31 +384,10 @@
         } catch(e) {}
       }
       
-      const newItems: MediaItem[] = [];
-      let batchOffset = currentOffset;
-      let keepLoading = true;
-      
-      while (keepLoading) {
-        const items = await GetMediaPaginated(
-          platform, "",
-          batchOffset,
-          pageSize
-        );
-        
-        if (!items || items.length === 0) break;
-        
-        newItems.push(...items);
-        batchOffset += items.length;
-        
-        if (items.length < pageSize) break;
-      }
-      
-      paginatedMedia.push(...newItems);
-      currentOffset = batchOffset;
-      hasMoreMedia = totalMediaCount > 0 ? currentOffset < totalMediaCount : currentOffset === 0;
-      
-      // Reset observer target
-      setupInfiniteScroll();
+      const items: MediaItem[] = (await GetMediaPaginated(platform, "", currentOffset, pageSize)) ?? [];
+      paginatedMedia = [...paginatedMedia, ...items];
+      currentOffset += items.length;
+      hasMoreMedia = items.length === pageSize;
     } catch (e) {
       console.error("Failed to load media:", e);
     } finally {
@@ -407,7 +397,6 @@
 
   function triggerLoadMore() {
     if (!isLoadingMore && hasMoreMedia) {
-      currentOffset = paginatedMedia.length;
       loadMediaBatch();
     }
   }
@@ -427,6 +416,13 @@
     }, { rootMargin: "400px" });
     
     infiniteObserver.observe(sentinelRef);
+  }
+
+  // Re-attach the observer whenever the sentinel enters/leaves the DOM
+  // (it only renders while more media is available).
+  $: if (sentinelRef !== undefined) {
+    void sentinelRef;
+    setupInfiniteScroll();
   }
 
   async function savePageSize(newSize: number) {
@@ -603,20 +599,6 @@ onMount(async () => {
     }
   }
 
-  async function logoutProfile() {
-    try {
-      const nextProfile = await LogoutProfile();
-      appState = { ...appState, profile: nextProfile };
-      profileUsername = "";
-      profileFullName = "";
-      showLoginScreen = true;
-      showDashboard = false;
-      profileOpen = false;
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : String(caught);
-    }
-  }
-
   async function switchUser(userId: number) {
     try {
       const profile = await SelectUser(userId);
@@ -666,7 +648,7 @@ onMount(async () => {
     <section class="login-card">
       <div style="text-align:center;margin-bottom:2rem;">
         <h1 style="font-size:2rem;margin-bottom:0.5rem;">Mochila Archive Viewer</h1>
-        <p class="subtitle" style="max-width:300px;margin:0 auto;">Snapchat Data Explorer</p>
+        <p class="subtitle" style="max-width:300px;margin:0 auto;">Personal data archive explorer</p>
       </div>
       
       {#if authError}
@@ -718,6 +700,13 @@ onMount(async () => {
         </button>
       </div>
       
+      {#if platformStatsList.length === 0}
+        <section class="empty">
+          <h2>No platforms available yet</h2>
+          <p>No archive data has been indexed for this profile. Continue to the explorer to add export zips.</p>
+          <button class="load-more" on:click={() => { showDashboard = false; }}>Open archive explorer</button>
+        </section>
+      {/if}
       <div class="platform-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;">
         {#each platformStatsList as stat}
           <div 
@@ -816,6 +805,9 @@ onMount(async () => {
         >
           Data Explorer
         </button>
+        <button on:click={async () => { selectedPlatform = null; showDashboard = true; await loadPlatformDashboard(); }}>
+          ← Dashboard
+        </button>
         <button on:click={pickZips} disabled={selecting}>
           {selecting ? "Opening..." : "Add zips"}
         </button>
@@ -911,10 +903,10 @@ onMount(async () => {
 
         <div class="gallery-panel">
           <div class="result-line">
-            Showing {formatter.format(visibleMedia.length)} of {formatter.format(filteredMedia.length)} matching files
+            Showing {formatter.format(visibleMedia.length)} of {formatter.format(selectedPlatform ? totalMediaCount : filteredMedia.length)} matching files
           </div>
 
-          {#if filteredMedia.length === 0}
+          {#if visibleMedia.length === 0 && !isLoadingMore}
             <div class="empty">No media matched those filters.</div>
           {:else}
             <div class="media-grid">
@@ -941,7 +933,7 @@ onMount(async () => {
               {/each}
             </div>
 
-            {#if visibleMedia.length < filteredMedia.length}
+            {#if selectedPlatform ? hasMoreMedia : visibleMedia.length < filteredMedia.length}
               <button class="load-more" on:click={triggerLoadMore} disabled={isLoadingMore}>
                 {isLoadingMore ? "Loading..." : `Load more (${paginatedMedia.length} of ${totalMediaCount.toLocaleString()})`}
               </button>
@@ -1165,9 +1157,6 @@ onMount(async () => {
   {/if}
 {/if}
 
-
-// Page size for gallery display
-
 {#if settingsOpen}
   <div class="modal-backdrop" role="presentation" on:click={() => (settingsOpen = false)}>
     <div class="settings-modal" role="dialog" aria-modal="true" on:click|stopPropagation on:keydown|stopPropagation>
@@ -1269,7 +1258,7 @@ onMount(async () => {
         <button class="load-more" on:click={saveProfileForm}>Save profile</button>
         {#if appState.profile.loggedIn}
           <button class="secondary-button" on:click={() => { profileUsername = ""; profileFullName = ""; }}>New profile</button>
-          <button class="secondary-button" on:click={logoutProfile}>Logout</button>
+          <button class="secondary-button" on:click={handleLogout}>Logout</button>
         {/if}
       </div>
     </div>

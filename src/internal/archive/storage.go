@@ -572,29 +572,12 @@ type PlatformStats struct {
 }
 
 func (s *Store) PlatformStats(platform string, userId int64) (*PlatformStats, error) {
-	var mediaCount, zipCount, convCount, jsonCount int64
-	rows, err := s.db.Query(`
-		SELECT COALESCE(SUM(m.image_count),0), COALESCE(SUM(m.video_count),0)
-		FROM (
-			SELECT 'image' as mt, COUNT(*) as image_count, 0 as video_count
-			FROM media_items WHERE platform=? AND user_id=? AND type='image'
-			UNION ALL
-			SELECT 'video', 0, COUNT(*)
-			FROM media_items WHERE platform=? AND user_id=? AND type='video'
-		) m
-	`, platform, userId, platform, userId)
-	if err != nil {
+	var mediaCount, zipCount, convCount, jsonCount, imageCount, videoCount int64
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE platform=? AND user_id=?`, platform, userId).Scan(&mediaCount); err != nil {
 		return nil, err
 	}
-	for rows.Next() {
-		var imgCnt, vidCnt int64
-		if err := rows.Scan(&imgCnt, &vidCnt); err != nil {
-			continue
-		}
-		mediaCount = imgCnt + vidCnt
-		break
-	}
-	rows.Close()
+	s.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE platform=? AND user_id=? AND type='image'`, platform, userId).Scan(&imageCount)
+	s.db.QueryRow(`SELECT COUNT(*) FROM media_items WHERE platform=? AND user_id=? AND type='video'`, platform, userId).Scan(&videoCount)
 
 	s.db.QueryRow(`SELECT COUNT(*) FROM archive_files WHERE platform=? AND user_id=?`, platform, userId).Scan(&zipCount)
 	s.db.QueryRow(`SELECT COUNT(DISTINCT conversation_id) FROM conversations WHERE platform=? AND user_id=?`, platform, userId).Scan(&convCount)
@@ -604,14 +587,14 @@ func (s *Store) PlatformStats(platform string, userId int64) (*PlatformStats, er
 	s.db.QueryRow(`SELECT COUNT(DISTINCT year) FROM media_items WHERE platform=? AND user_id=? AND year!='unknown'`, platform, userId).Scan(&yearsFound)
 
 	return &PlatformStats{
-		Platform:         platform,
-		MediaCount:       mediaCount,
-		ZipCount:         zipCount,
+		Platform:          platform,
+		MediaCount:        mediaCount,
+		ZipCount:          zipCount,
 		ConversationCount: convCount,
-		JsonFileCount:    jsonCount,
-		ImageCount:       0, // counted above
-		VideoCount:       0,
-		YearsFound:       yearsFound,
+		JsonFileCount:     jsonCount,
+		ImageCount:        imageCount,
+		VideoCount:        videoCount,
+		YearsFound:        yearsFound,
 	}, nil
 }
 
@@ -750,31 +733,33 @@ func (s *Store) GetProfileByID(id int64) (*Profile, error) {
 	return &profile, nil
 }
 
-func (s *Store) SaveProfile(profile Profile) error {
-	// Check if profile already exists by username
+// SaveProfile inserts or updates a profile and returns its id.
+// Logging a profile in is exclusive: all other profiles are logged out first.
+func (s *Store) SaveProfile(profile Profile) (int64, error) {
+	if profile.LoggedIn {
+		if _, err := s.db.Exec("UPDATE profile SET logged_in = 0"); err != nil {
+			return 0, err
+		}
+	}
 	var existingID int64
 	err := s.db.QueryRow("SELECT profile_id FROM profile WHERE username = ?", profile.Username).Scan(&existingID)
 	if errors.Is(err, sql.ErrNoRows) {
-		// New user - insert
 		result, err := s.db.Exec(`
 			INSERT INTO profile (username, full_name, logged_in)
 			VALUES (?, ?, ?)
 		`, profile.Username, profile.FullName, boolToInt(profile.LoggedIn))
 		if err != nil {
-			return err
+			return 0, err
 		}
-		id, _ := result.LastInsertId()
-		profile.ID = id
-		return nil
+		return result.LastInsertId()
 	} else if err != nil {
-		return err
+		return 0, err
 	}
-	// Existing user - update
 	_, err = s.db.Exec(`
 		UPDATE profile SET full_name = ?, logged_in = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE profile_id = ?
 	`, profile.FullName, boolToInt(profile.LoggedIn), existingID)
-	return err
+	return existingID, err
 }
 
 
