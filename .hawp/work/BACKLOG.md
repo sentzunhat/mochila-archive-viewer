@@ -9,7 +9,7 @@ Each row links to its plan file when one exists.
 ## Status Key
 
 | Status        | Meaning                             |
-| ------------- | ----------------------------------- |
+| ------------- | ------------------------------------ |
 | `inbox`       | Received, not yet analyzed          |
 | `analyzing`   | Under investigation                 |
 | `plan-ready`  | Plan written, awaiting review       |
@@ -22,39 +22,31 @@ Each row links to its plan file when one exists.
 
 ---
 
-## Recently Closed (Backtracked)
+## Active Work
 
-Work was implemented before HAWP tracking was established. Backtracking for visibility.
-
-| #   | Status | Title                                                                   | Plan File                         | Commit  |
-| --- | ------ | ----------------------------------------------------------------------- | --------------------------------- | ------- |
-| 1   | done   | Stabilize archive viewer app                                            | [001](./closed/2025/07/09/001.md) | cfcd727 |
-| 2   | done   | Enhance JSON explorer with structured analysis and media loading states | [002](./closed/2025/07/09/002.md) | 7413f34 |
-| 3   | done   | Add search bar, settings page, optimize OnThisDay video                 | [003](./closed/2025/07/09/003.md) | c5af4df |
-| 10  | done   | Multi-user isolation — wire profile to indexed data                     | [010](./active/010.md)            | eb2c321 |
+| #   | Status      | Title                                                | Plan File                        | Next action                                                |
+| --- | ----------- | ----------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
+| 9   | parked      | Multi-platform provider scaffolding — investigate    | [active/009.md](./active/009.md) | Unblocked (016 done); size Instagram provider work before starting |
+| 13  | in-progress | Auto-update support — version+icon+CI done, update check next | [active/013.md](./active/013.md) | Execute slice 3 per [update-check-implementation-plan.md](../kit/examples/update-check-implementation-plan.md) |
 
 ---
 
-## Active Work (Compoundable Next Steps)
+## Recently Closed
 
-Items below are compoundable: each can be done independently or together as a batch. Planning first, review before implementation.
+Capped to the 10 most recent closures. Older closed items are not deleted — they remain under `.hawp/work/closed/YYYY/MM/DD/`, just not listed here.
 
-| #   | Status      | Title                                               | Plan File                        |
-| --- | ----------- | --------------------------------------------------- | -------------------------------- |
-| 4   | done        | Backend: thread activeUser through Wails bindings   | [active/004.md](./active/004.md) |
-| 5   | done        | Frontend: refine search UX with keyboard shortcuts  | [active/005.md](./active/005.md) |
-| 6   | done        | Integration test: build + run wails dev cycle       | [active/006.md](./active/006.md) |
-| 7   | done        | Match POC UI structure in new Go implementation     | [active/007.md](./active/007.md) |
-| 8   | done        | Fix media source loading gaps across views          | [active/008.md](./active/008.md) |
-| 9   | parked      | Multi-platform provider scaffolding — investigate   | [active/009.md](./active/009.md) |
-| 10  | done        | Multi-user isolation — wire profile to indexed data | [active/010.md](./active/010.md) |
-| 11  | done        | Profile management — multi-user creation/switching  | [active/011.md](./active/011.md) |
-| 12  | plan-ready  | Frontend design system — tokens/spacing/typography  | [active/012.md](./active/012.md) |
-| 13  | in-progress | Auto-update: version+icon+CI done, update check next | [active/013.md](./active/013.md) |
-| 14  | done        | Browser-driven UI smoke test of the dev build       | [active/014.md](./active/014.md) |
-| 15  | done        | Legacy data ownership — user_id 0/1 cleanup         | [active/015.md](./active/015.md) |
-| 16  | done        | Snapchat UI parity+polish vs POC (gates IG/FB UI)   | [active/016.md](./active/016.md) |
-| 17  | done        | Link chat message media to indexed media items      | [active/017.md](./active/017.md) |
+| #   | Title                                                       | Closed     | Plan File                                          |
+| --- | ------------------------------------------------------------ | ---------- | ---------------------------------------------------- |
+| 12  | Frontend design system — tokens/spacing/typography           | 2026-07-21 | [closed/2026/07/21/012.md](./closed/2026/07/21/012.md) |
+| 15  | Legacy data ownership — user_id 0/1 cleanup                  | 2026-07-21 | [closed/2026/07/21/015.md](./closed/2026/07/21/015.md) |
+| 16  | Snapchat UI parity+polish vs POC (unblocks IG/FB UI)          | 2026-07-20 | [closed/2026/07/20/016.md](./closed/2026/07/20/016.md) |
+| 17  | Link chat message media to indexed media items                | 2026-07-20 | [closed/2026/07/20/017.md](./closed/2026/07/20/017.md) |
+| 14  | Browser-driven UI smoke test of the dev build                 | 2026-07-20 | [closed/2026/07/20/014.md](./closed/2026/07/20/014.md) |
+| 11  | Profile management — multi-user creation/switching            | 2026-07-13 | [closed/2026/07/13/011.md](./closed/2026/07/13/011.md) |
+| 10  | Multi-user isolation — wire profile to indexed data            | 2026-07-13 | [closed/2026/07/13/010.md](./closed/2026/07/13/010.md) |
+| 8   | Fix media source loading gaps across views                    | 2026-07-09 | [closed/2026/07/09/008.md](./closed/2026/07/09/008.md) |
+| 7   | Match POC UI structure in new Go implementation                | 2026-07-09 | [closed/2026/07/09/007.md](./closed/2026/07/09/007.md) |
+| 6   | Integration test: build + run wails dev cycle (backtracked)   | 2025-07-09 | [closed/2025/07/09/006.md](./closed/2025/07/09/006.md) |
 
 ---
 
@@ -73,5 +65,6 @@ Items below are compoundable: each can be done independently or together as a ba
 - Each item gets one plan file under `.hawp/work/active/` — no two agents on the same ID.
 - Deferred items can move to `.hawp/work/parked/` without being closed.
 - On close, move the plan file to `.hawp/work/closed/YYYY/MM/DD/`.
-- Keep Recently Closed capped; do not append completed history forever.
+- Keep Recently Closed capped at 10 items; do not append completed history forever. Nothing is deleted — everything closed lives under `.hawp/work/closed/`.
 - Work started outside this loop should still get a row added for visibility.
+- Compacted 2026-07-21: moved 004-008, 010-012, 014-017 from `active/` to `closed/`; trimmed this table from 14 rows (11 done) down to the 2 genuinely open items.

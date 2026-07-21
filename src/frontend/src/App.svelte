@@ -21,6 +21,7 @@
     SaveProfile,
     LogoutProfile,
     AppVersion,
+    CheckForUpdate,
   } from "../wailsjs/go/appshell/App.js";
 
   type ProviderCard = { id: string; name: string; status: string; description: string; supported: boolean };
@@ -466,6 +467,7 @@
 
   let dashboardNotice = "";
   let appVersion = "dev";
+  let updateStatus: { available: boolean; latest: string; url: string } | null = null;
 
   async function selectPlatform(platform: string) {
     dashboardNotice = "";
@@ -611,6 +613,7 @@ onMount(async () => {
       profileUsername = appState.profile.username ?? "";
       profileFullName = appState.profile.fullName ?? "";
       try { appVersion = await AppVersion(); } catch (e) {}
+      try { updateStatus = await CheckForUpdate(); } catch (e) {}
       
       // Load user settings
       const settings = await GetAppSettings();
@@ -1381,6 +1384,14 @@ onMount(async () => {
           <div><dt>Backend</dt><dd>Go with Wails v2</dd></div>
           <div><dt>Storage</dt><dd>{appState.storePath || "~/.mochila/database.sqlite"}</dd></div>
         </dl>
+        {#if updateStatus?.available}
+          <p class="settings-hint">
+            <a href={updateStatus.url} target="_blank" rel="noreferrer">{updateStatus.latest} available — download</a>
+          </p>
+        {/if}
+        <button class="secondary-button" on:click={async () => { try { updateStatus = await CheckForUpdate(); } catch (e) {} }}>
+          Check for updates
+        </button>
       </section>
       
       <section class="settings-section">
