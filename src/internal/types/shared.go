@@ -1,3 +1,6 @@
+// Package types defines the shared domain types passed between the archive
+// service layer and the Wails frontend bindings. All types must be JSON-safe
+// so that Wails can serialize them for the webview RPC bridge.
 package types
 
 type MediaItem struct {

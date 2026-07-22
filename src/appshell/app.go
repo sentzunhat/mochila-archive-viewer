@@ -1,3 +1,8 @@
+// Package appshell wires the archive service to the Wails runtime.
+// It owns the RPC boundary: every exported method on App is a Wails binding
+// that the Svelte frontend calls via window.go.* interop. Handlers here do
+// translation, validation, and error shaping only — business logic lives in
+// the archive service layer.
 package appshell
 
 import (
