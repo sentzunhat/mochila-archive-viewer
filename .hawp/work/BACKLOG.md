@@ -26,7 +26,6 @@ Each row links to its plan file when one exists.
 
 | #   | Status      | Title                                                        | Plan File                        | Next action                                                |
 | --- | ----------- | ------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
-| 20  | plan-ready  | Architecture & code quality audit (Zacatl-aligned)           | [active/020.md](./active/020.md) | Start with Part A (SQL fixes) — highest priority, data loss bug in platform_snapshots PK |
 | 9   | parked      | Multi-platform provider scaffolding — investigate             | [active/009.md](./active/009.md) | Unblocked (016 done); size Instagram provider work before starting |
 
 ---
@@ -37,6 +36,7 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 
 | #   | Title                                                       | Closed     | Plan File                                          |
 | --- | ------------------------------------------------------------ | ---------- | ---------------------------------------------------- |
+| 20  | Architecture & code quality audit (Zacatl-aligned) — 29/34 findings implemented | 2026-07-22 | [closed/2026/07/22/020.md](./closed/2026/07/22/020.md) |
 | 19  | Serve media over HTTP not base64-RPC (filter-switch fix)      | 2026-07-22 | [closed/2026/07/22/019.md](./closed/2026/07/22/019.md) |
 | 13  | Auto-update support — full end-to-end test passed             | 2026-07-22 | [closed/2026/07/22/013.md](./closed/2026/07/22/013.md) |
 | 18  | Update check blocked by private repo — repo made public      | 2026-07-22 | [closed/2026/07/22/018.md](./closed/2026/07/22/018.md) |
@@ -46,7 +46,6 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 | 17  | Link chat message media to indexed media items                | 2026-07-20 | [closed/2026/07/20/017.md](./closed/2026/07/20/017.md) |
 | 14  | Browser-driven UI smoke test of the dev build                 | 2026-07-20 | [closed/2026/07/20/014.md](./closed/2026/07/20/014.md) |
 | 11  | Profile management — multi-user creation/switching            | 2026-07-13 | [closed/2026/07/13/011.md](./closed/2026/07/13/011.md) |
-| 10  | Multi-user isolation — wire profile to indexed data            | 2026-07-13 | [closed/2026/07/13/010.md](./closed/2026/07/13/010.md) |
 
 ---
 
