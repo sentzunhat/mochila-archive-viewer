@@ -26,7 +26,8 @@ Each row links to its plan file when one exists.
 
 | #   | Status      | Title                                                        | Plan File                        | Next action                                                |
 | --- | ----------- | ------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
-| 9   | parked      | Multi-platform provider scaffolding — investigate             | [active/009.md](./active/009.md) | Unblocked (016 done); size Instagram provider work before starting |
+| 21  | inbox       | Instagram provider: wire up + complete (timestamps, IsSender, media linking) | [active/021.md](./active/021.md) | Inspect real export → fix gaps G1–G5 → wire into service → smoke test |
+| 22  | inbox       | Facebook / Messenger provider: parser + indexer from scratch  | [active/022.md](./active/022.md) | After 021 done; inspect real export first (Mojibake risk) |
 
 ---
 
@@ -45,7 +46,7 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 | 16  | Snapchat UI parity+polish vs POC (unblocks IG/FB UI)          | 2026-07-20 | [closed/2026/07/20/016.md](./closed/2026/07/20/016.md) |
 | 17  | Link chat message media to indexed media items                | 2026-07-20 | [closed/2026/07/20/017.md](./closed/2026/07/20/017.md) |
 | 14  | Browser-driven UI smoke test of the dev build                 | 2026-07-20 | [closed/2026/07/20/014.md](./closed/2026/07/20/014.md) |
-| 11  | Profile management — multi-user creation/switching            | 2026-07-13 | [closed/2026/07/13/011.md](./closed/2026/07/13/011.md) |
+| 9   | Multi-platform investigation — absorbed into 021 + 022        | 2026-07-22 | [closed/2026/07/22/009.md](./closed/2026/07/22/009.md) |
 
 ---
 
