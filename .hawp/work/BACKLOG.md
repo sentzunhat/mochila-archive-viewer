@@ -26,9 +26,8 @@ Each row links to its plan file when one exists.
 
 | #   | Status      | Title                                                        | Plan File                        | Next action                                                |
 | --- | ----------- | ------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
-| 21  | in-progress | Instagram provider: wire up + complete (timestamps, IsSender, media linking) | [active/021.md](./active/021.md) | Inspect real export → fix gaps G1–G5 → wire into service → smoke test |
-| 22  | inbox       | Facebook / Messenger provider: parser + indexer from scratch  | [active/022.md](./active/022.md) | After 021 done; inspect real export first (Mojibake risk) |
-| 23  | inbox       | File decomposition: Zacatl-aligned domain boundaries (storage/service/appshell/Svelte) | [active/023.md](./active/023.md) | After 021 wired — do Go splits first, Svelte last |
+| 22  | inbox       | Facebook / Messenger provider: parser + indexer from scratch  | [active/022.md](./active/022.md) | Inspect real export first (Mojibake risk) |
+| 23  | inbox       | File decomposition: Zacatl-aligned domain boundaries (storage/service/appshell/Svelte) | [active/023.md](./active/023.md) | Do Go splits first, Svelte last |
 
 ---
 
@@ -38,6 +37,7 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 
 | #   | Title                                                       | Closed     | Plan File                                          |
 | --- | ------------------------------------------------------------ | ---------- | ---------------------------------------------------- |
+| 21  | Instagram provider: wire up + complete (all gaps G1–G5 fixed, smoke tested) | 2026-07-22 | [closed/2026/07/22/021.md](./closed/2026/07/22/021.md) |
 | 20  | Architecture & code quality audit (Zacatl-aligned) — 29/34 findings implemented | 2026-07-22 | [closed/2026/07/22/020.md](./closed/2026/07/22/020.md) |
 | 19  | Serve media over HTTP not base64-RPC (filter-switch fix)      | 2026-07-22 | [closed/2026/07/22/019.md](./closed/2026/07/22/019.md) |
 | 13  | Auto-update support — full end-to-end test passed             | 2026-07-22 | [closed/2026/07/22/013.md](./closed/2026/07/22/013.md) |

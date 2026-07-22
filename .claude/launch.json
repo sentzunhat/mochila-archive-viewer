@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mochila-dev",
+      "runtimeExecutable": "wails",
+      "runtimeArgs": ["dev"],
+      "cwd": "src",
+      "port": 34115,
+      "url": "http://localhost:34115"
+    }
+  ]
+}
