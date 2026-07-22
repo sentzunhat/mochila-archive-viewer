@@ -27,7 +27,8 @@ Each row links to its plan file when one exists.
 | #   | Status      | Title                                                | Plan File                        | Next action                                                |
 | --- | ----------- | ----------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
 | 9   | parked      | Multi-platform provider scaffolding — investigate    | [active/009.md](./active/009.md) | Unblocked (016 done); size Instagram provider work before starting |
-| 13  | in-progress | Auto-update support — version+icon+CI done, update check next | [active/013.md](./active/013.md) | Execute slice 3 per [update-check-implementation-plan.md](../kit/examples/update-check-implementation-plan.md) |
+| 13  | in-progress | Auto-update support — slice 3 built, tested live      | [active/013.md](./active/013.md) | Blocked on 018's decision |
+| 18  | blocked     | Update check can never succeed while repo is private | [active/018.md](./active/018.md) | Needs user decision: make repo public, or a different distribution channel |
 
 ---
 
