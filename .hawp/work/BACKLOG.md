@@ -24,9 +24,10 @@ Each row links to its plan file when one exists.
 
 ## Active Work
 
-| #   | Status      | Title                                                | Plan File                        | Next action                                                |
-| --- | ----------- | ----------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
-| 9   | parked      | Multi-platform provider scaffolding — investigate    | [active/009.md](./active/009.md) | Unblocked (016 done); size Instagram provider work before starting |
+| #   | Status      | Title                                                        | Plan File                        | Next action                                                |
+| --- | ----------- | ------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
+| 20  | plan-ready  | Architecture & code quality audit (Zacatl-aligned)           | [active/020.md](./active/020.md) | Start with Part A (SQL fixes) — highest priority, data loss bug in platform_snapshots PK |
+| 9   | parked      | Multi-platform provider scaffolding — investigate             | [active/009.md](./active/009.md) | Unblocked (016 done); size Instagram provider work before starting |
 
 ---
 
