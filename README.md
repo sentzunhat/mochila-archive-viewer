@@ -1,6 +1,6 @@
 # mochila-archive-viewer
 
-Mochila is a private local-first desktop archive viewer for exported social data. The live Go + Wails app now sits under `src/`, starts with Snapchat, keeps raw exports on the local machine, and has modular provider lanes for Instagram and Facebook work that is still being staged.
+Mochila is an open-source, local-first desktop archive viewer for exported social data — the source is public, but the app never sends your archive anywhere; everything stays on your machine. The live Go + Wails app sits under `src/`, starts with Snapchat, keeps raw exports on the local machine, and has modular provider lanes for Instagram and Facebook work that is still being staged.
 
 ## Layout
 
@@ -37,7 +37,11 @@ The workflow builds macOS (Apple Silicon + Intel) and Windows binaries with the 
 
 - App identity lives in `src/wails.json` (`info` block) and `src/build/darwin/Info.plist` (bundle id `com.sentzunhat.mochila-archive-viewer`); the app icon is `src/build/appicon.png`.
 - Binaries are currently unsigned: on macOS, downloaded builds need right-click → Open the first time (Gatekeeper).
-- An in-app update check against GitHub Releases is planned — see `.hawp/work/active/013.md`.
+- The app checks GitHub for a newer release once per launch (Settings → About → "Check for updates"), a single unauthenticated API call with a ~3s timeout. It fails silently if you're offline — the app is fully usable with no network access — and requires this repo to stay public.
+
+## License
+
+MPL-2.0 — see `LICENSE`.
 
 ## Notes
 

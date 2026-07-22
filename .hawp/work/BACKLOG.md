@@ -27,8 +27,6 @@ Each row links to its plan file when one exists.
 | #   | Status      | Title                                                | Plan File                        | Next action                                                |
 | --- | ----------- | ----------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
 | 9   | parked      | Multi-platform provider scaffolding — investigate    | [active/009.md](./active/009.md) | Unblocked (016 done); size Instagram provider work before starting |
-| 13  | in-progress | Auto-update support — slice 3 built, tested live      | [active/013.md](./active/013.md) | Blocked on 018's decision |
-| 18  | blocked     | Update check can never succeed while repo is private | [active/018.md](./active/018.md) | Needs user decision: make repo public, or a different distribution channel |
 
 ---
 
@@ -38,6 +36,8 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 
 | #   | Title                                                       | Closed     | Plan File                                          |
 | --- | ------------------------------------------------------------ | ---------- | ---------------------------------------------------- |
+| 13  | Auto-update support — full end-to-end test passed             | 2026-07-22 | [closed/2026/07/22/013.md](./closed/2026/07/22/013.md) |
+| 18  | Update check blocked by private repo — repo made public      | 2026-07-22 | [closed/2026/07/22/018.md](./closed/2026/07/22/018.md) |
 | 12  | Frontend design system — tokens/spacing/typography           | 2026-07-21 | [closed/2026/07/21/012.md](./closed/2026/07/21/012.md) |
 | 15  | Legacy data ownership — user_id 0/1 cleanup                  | 2026-07-21 | [closed/2026/07/21/015.md](./closed/2026/07/21/015.md) |
 | 16  | Snapchat UI parity+polish vs POC (unblocks IG/FB UI)          | 2026-07-20 | [closed/2026/07/20/016.md](./closed/2026/07/20/016.md) |
@@ -46,8 +46,6 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 | 11  | Profile management — multi-user creation/switching            | 2026-07-13 | [closed/2026/07/13/011.md](./closed/2026/07/13/011.md) |
 | 10  | Multi-user isolation — wire profile to indexed data            | 2026-07-13 | [closed/2026/07/13/010.md](./closed/2026/07/13/010.md) |
 | 8   | Fix media source loading gaps across views                    | 2026-07-09 | [closed/2026/07/09/008.md](./closed/2026/07/09/008.md) |
-| 7   | Match POC UI structure in new Go implementation                | 2026-07-09 | [closed/2026/07/09/007.md](./closed/2026/07/09/007.md) |
-| 6   | Integration test: build + run wails dev cycle (backtracked)   | 2025-07-09 | [closed/2025/07/09/006.md](./closed/2025/07/09/006.md) |
 
 ---
 
