@@ -107,7 +107,7 @@ func (s *Service) ProviderCards() []ProviderCard {
 			Name:        p.Name(),
 			Status:      p.Status(),
 			Description: p.Description(),
-			Supported:   p.ID() == "snapchat",
+			Supported:   p.ID() == "snapchat" || p.ID() == "instagram",
 		})
 	}
 	return cards
@@ -115,12 +115,11 @@ func (s *Service) ProviderCards() []ProviderCard {
 
 func (s *Service) platform(id string) (*PlatformState, error) {
 	switch id {
-	case "snapchat", "instagram", "facebook":
+	case "snapchat", "instagram":
+	case "facebook":
+		return nil, ErrPlatformNotSupported
 	default:
 		return nil, ErrPlatformUnknown
-	}
-	if id != "snapchat" {
-		return nil, ErrPlatformNotSupported
 	}
 	if s.platforms[id] == nil {
 		s.platforms[id] = newPlatformState()
@@ -180,20 +179,31 @@ func (s *Service) IndexArchives(platform string) (*IndexSummary, error) {
 		paths[i] = a.Path
 	}
 
-	idx, err := snapchat.IndexZips(paths)
-	if err != nil {
-		return nil, err
-	}
-
+	var idx *types.Index
 	var conversations []types.Conversation
-	chatRef := findJsonEntry(idx, "json/chat_history.json")
-	if chatRef != nil {
-		raw, err := snapchat.ReadEntryString(idx.Zips[chatRef.ZipIndex].Path, chatRef.Entry)
-		if err == nil && raw != "" {
-			if convos, err := snapchat.ParseChatHistory([]byte(raw)); err == nil {
-				conversations = convos
+
+	switch platform {
+	case "snapchat":
+		idx, err = snapchat.IndexZips(paths)
+		if err != nil {
+			return nil, err
+		}
+		chatRef := findJsonEntry(idx, "json/chat_history.json")
+		if chatRef != nil {
+			raw, rerr := snapchat.ReadEntryString(idx.Zips[chatRef.ZipIndex].Path, chatRef.Entry)
+			if rerr == nil && raw != "" {
+				if convos, perr := snapchat.ParseChatHistory([]byte(raw)); perr == nil {
+					conversations = convos
+				}
 			}
 		}
+	case "instagram":
+		idx, conversations, err = instagram.IndexZips(paths)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, ErrPlatformNotSupported
 	}
 
 	if err := s.store.SaveSnapshot(platform, s.activeUserId, ps.Selected, idx, conversations); err != nil {
@@ -520,7 +530,15 @@ func (s *Service) MediaBytesForUser(platform string, userId int64, id int) ([]by
 	if zipPath == "" {
 		return nil, "", fmt.Errorf("zip path for media %d not found", id)
 	}
-	data, err := snapchat.ReadEntry(zipPath, item.Entry)
+	var data []byte
+	switch platform {
+	case "snapchat":
+		data, err = snapchat.ReadEntry(zipPath, item.Entry)
+	case "instagram":
+		data, err = instagram.ReadEntry(zipPath, item.Entry)
+	default:
+		return nil, "", fmt.Errorf("unsupported platform %q", platform)
+	}
 	if err != nil {
 		return nil, "", err
 	}
