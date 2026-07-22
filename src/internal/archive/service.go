@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 
@@ -146,8 +145,6 @@ func (s *Service) SetSelectedArchives(platform string, paths []string) ([]Archiv
 	}
 	ps.Selected = selected
 	ps.Summary = nil
-	ps.Media = nil
-	ps.Conversations = nil
 	if err := s.store.SaveSelection(platform, s.activeUserId, ps.Selected); err != nil {
 		return nil, err
 	}
@@ -187,23 +184,19 @@ func (s *Service) IndexArchives(platform string) (*IndexSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	ps.Index = idx
 
+	var conversations []types.Conversation
 	chatRef := findJsonEntry(idx, "json/chat_history.json")
 	if chatRef != nil {
 		raw, err := snapchat.ReadEntryString(idx.Zips[chatRef.ZipIndex].Path, chatRef.Entry)
 		if err == nil && raw != "" {
 			if convos, err := snapchat.ParseChatHistory([]byte(raw)); err == nil {
-				ps.Conversations = convos
+				conversations = convos
 			}
 		}
 	}
 
-	if err := s.cacheMediaFiles(platform, idx); err != nil {
-		return nil, err
-	}
-
-	if err := s.store.SaveSnapshot(platform, s.activeUserId, ps.Selected, idx, ps.Conversations); err != nil {
+	if err := s.store.SaveSnapshot(platform, s.activeUserId, ps.Selected, idx, conversations); err != nil {
 		return nil, err
 	}
 
@@ -215,14 +208,12 @@ func (s *Service) IndexArchives(platform string) (*IndexSummary, error) {
 		Types:      idx.Types,
 		Categories: idx.Categories,
 	}
-	ps.Media = idx.Media
-	ps.JsonFiles = idx.JsonFiles
 	_ = s.store.WritePlatformSnapshotFile(platform, map[string]any{
 		"selected":      ps.Selected,
 		"summary":       ps.Summary,
 		"mediaCount":    len(idx.Media),
 		"jsonFiles":     len(idx.JsonFiles),
-		"conversations": len(ps.Conversations),
+		"conversations": len(conversations),
 	})
 
 	return ps.Summary, nil
@@ -234,22 +225,10 @@ func (s *Service) GetMedia(platform, year string) ([]types.MediaItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ps.Index == nil {
-		if ps.Summary != nil {
-			return s.store.Media(platform, year, s.activeUserId)
-		}
+	if ps.Summary == nil {
 		return nil, ErrNotIndexed
 	}
-	if year == "" || year == "all" {
-		return ps.Index.Media, nil
-	}
-	out := make([]types.MediaItem, 0)
-	for _, m := range ps.Index.Media {
-		if m.Year == year {
-			out = append(out, m)
-		}
-	}
-	return out, nil
+	return s.store.Media(platform, year, s.activeUserId)
 }
 
 // GetMediaPaginated returns a page of media items from the store, narrowed
@@ -265,32 +244,7 @@ func (s *Service) GetMediaCount(platform string, filter MediaFilter) (int64, err
 
 // GetPlatformStats returns aggregate statistics for a platform.
 func (s *Service) GetPlatformStats(platform string) (*PlatformStats, error) {
-	stats, err := s.store.PlatformStats(platform, s.activeUserId)
-	if err != nil {
-		return nil, err
-	}
-	var imgCount, vidCount int64
-	rows, err := s.store.db.Query(`
-		SELECT COUNT(*) FROM media_items WHERE platform=? AND user_id=? AND type='image'
-		UNION ALL SELECT COUNT(*) FROM media_items WHERE platform=? AND user_id=? AND type='video'
-	`, platform, s.activeUserId, platform, s.activeUserId)
-	if err == nil {
-		var first bool
-		for rows.Next() {
-			var c int64
-			rows.Scan(&c)
-			if !first {
-				imgCount = c
-				first = true
-			} else {
-				vidCount = c
-			}
-		}
-		rows.Close()
-	}
-	stats.ImageCount = imgCount
-	stats.VideoCount = vidCount
-	return stats, nil
+	return s.store.PlatformStats(platform, s.activeUserId)
 }
 
 // GetConversations returns the conversation list (no message bodies) for a platform.
@@ -299,17 +253,10 @@ func (s *Service) GetConversations(platform string) ([]types.Conversation, error
 	if err != nil {
 		return nil, err
 	}
-	if ps.Index == nil {
-		if ps.Summary != nil {
-			return s.store.Conversations(platform, s.activeUserId)
-		}
+	if ps.Summary == nil {
 		return nil, ErrNotIndexed
 	}
-	out := make([]types.Conversation, 0, len(ps.Conversations))
-	for _, c := range ps.Conversations {
-		out = append(out, c)
-	}
-	return out, nil
+	return s.store.Conversations(platform, s.activeUserId)
 }
 
 func (s *Service) JSONFiles(platform string) ([]types.JsonFileRef, error) {
@@ -317,27 +264,20 @@ func (s *Service) JSONFiles(platform string) ([]types.JsonFileRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ps.Index == nil {
-		if ps.Summary != nil {
-			return s.store.JSONFiles(platform, s.activeUserId)
-		}
+	if ps.Summary == nil {
 		return nil, ErrNotIndexed
 	}
-	return append([]types.JsonFileRef(nil), ps.JsonFiles...), nil
+	return s.store.JSONFiles(platform, s.activeUserId)
 }
 
 func (s *Service) JSONPreview(platform string, ordinal int) (*JSONPreview, error) {
-	ps, err := s.platform(platform)
-	if err != nil {
+	if _, err := s.platform(platform); err != nil {
 		return nil, err
 	}
 
-	jsonFiles := ps.JsonFiles
-	if ps.Index == nil && ps.Summary != nil {
-		jsonFiles, err = s.store.JSONFiles(platform, s.activeUserId)
-		if err != nil {
-			return nil, err
-		}
+	jsonFiles, err := s.store.JSONFiles(platform, s.activeUserId)
+	if err != nil {
+		return nil, err
 	}
 	if ordinal < 0 || ordinal >= len(jsonFiles) {
 		return nil, fmt.Errorf("json file %d not found", ordinal)
@@ -451,19 +391,10 @@ func (s *Service) JSONPreview(platform string, ordinal int) (*JSONPreview, error
 
 // GetConversation returns a full conversation with messages for a platform.
 func (s *Service) GetConversation(platform, id string) (*types.Conversation, error) {
-	ps, err := s.platform(platform)
-	if err != nil {
+	if _, err := s.platform(platform); err != nil {
 		return nil, err
 	}
-	if ps.Summary != nil && ps.Index == nil {
-		return s.store.Conversation(platform, id, s.activeUserId)
-	}
-	for i, c := range ps.Conversations {
-		if c.ID == id {
-			return &ps.Conversations[i], nil
-		}
-	}
-	return nil, nil
+	return s.store.Conversation(platform, id, s.activeUserId)
 }
 
 // ZipPath returns the file path of a zip by index within a platform.
@@ -500,9 +431,6 @@ func (s *Service) restorePlatform(id string, ps *PlatformState) error {
 
 	ps.Selected = snapshot.Selected
 	ps.Summary = snapshot.Summary
-	ps.Media = snapshot.Media
-	ps.JsonFiles = snapshot.JsonFiles
-	ps.Conversations = snapshot.Conversations
 	return nil
 }
 
@@ -553,11 +481,11 @@ func (s *Service) ActiveUser() (*Profile, error) {
     return s.store.ActiveUser()
 }
 
-func (s *Service) AvailableUsers() ([]UserEntry, error) {
-    if s.store == nil {
-        return []UserEntry{}, nil
-    }
-    return s.store.AvailableUsers()
+func (s *Service) AvailableUsers() ([]Profile, error) {
+	if s.store == nil {
+		return []Profile{}, nil
+	}
+	return s.store.AvailableUsers()
 }
 
 // GetMediaItem looks up a single media item by id directly from the store,
@@ -599,36 +527,4 @@ func (s *Service) MediaBytesForUser(platform string, userId int64, id int) ([]by
 	return data, item.Ext, nil
 }
 
-func (s *Service) cacheMediaFiles(platform string, idx *types.Index) error {
-	for i := range idx.Media {
-		target, err := s.mediaCachePath(platform, idx.Media[i].ID, idx.Media[i].Ext)
-		if err != nil {
-			return err
-		}
-		if _, err := os.Stat(target); err == nil {
-			idx.Media[i].LocalPath = target
-			continue
-		}
-		data, err := snapchat.ReadEntry(idx.Zips[idx.Media[i].ZipIndex].Path, idx.Media[i].Entry)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(target, data, 0o644); err != nil {
-			return err
-		}
-		idx.Media[i].LocalPath = target
-	}
-	return nil
-}
-
-func (s *Service) mediaCachePath(platform string, id int, ext string) (string, error) {
-	if s.store == nil {
-		return "", errors.New("archive store is unavailable")
-	}
-	root := s.store.ProviderMediaRoot(platform)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", err
-	}
-	return filepath.Join(root, fmt.Sprintf("%06d.%s", id, ext)), nil
-}
 

@@ -10,7 +10,7 @@ type MediaItem struct {
 	Year      string `json:"year"`
 	Type      string `json:"type"`
 	Ext       string `json:"ext"`
-	LocalPath string `json:"localPath"`
+	LocalPath string `json:"-"`
 }
 
 type JsonFileRef struct {

@@ -210,11 +210,11 @@ func (a *App) GetMediaCount(platform string, filter archive.MediaFilter) (int64,
 
 // AppSettings holds frontend preferences persisted per-user.
 type AppSettings struct {
-	Pagesize           int `json:"pageSize"`
-	Homedir            string
-	ProfileID          int64 `json:"profileId"`
-	LoggedIn           bool  `json:"loggedIn"`
-	UpdateCheckEnabled bool  `json:"updateCheckEnabled"`
+	Pagesize           int    `json:"pageSize"`
+	Homedir            string `json:"homedir"`
+	ProfileID          int64  `json:"profileId"`
+	LoggedIn           bool   `json:"loggedIn"`
+	UpdateCheckEnabled bool   `json:"updateCheckEnabled"`
 }
 
 var appSettings = &AppSettings{Pagesize: 180, ProfileID: 1, LoggedIn: false, UpdateCheckEnabled: true}
@@ -224,7 +224,6 @@ func (a *App) GetAppSettings() (*AppSettings, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
-	appSettings.Homedir = appSettings.Homedir
 	return appSettings, nil
 }
 
@@ -324,7 +323,7 @@ func (a *App) ActiveUserProfile() (*archive.Profile, error) {
 }
 
 // AvailableUsers returns all known user profiles.
-func (a *App) AvailableUsers() ([]archive.UserEntry, error) {
+func (a *App) AvailableUsers() ([]archive.Profile, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
@@ -364,7 +363,11 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data, ext, err := a.service.MediaBytesForUser(platform, userId, id)
-	if err != nil || data == nil {
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if data == nil {
 		http.NotFound(w, r)
 		return
 	}

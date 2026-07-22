@@ -1,16 +1,14 @@
 package archive
 
-import "mochila-archive-viewer/src/internal/types"
-
-// PlatformState holds the indexed data for one provider session.
+// PlatformState holds the minimal in-process state for one provider.
+// Heavy data (media, conversations, JSON files) is always fetched from the
+// DB via the Store — this struct only tracks what must survive a DB round-trip:
+// the selected zip paths, the index summary, and whether the platform has been
+// loaded from the store in this process lifetime.
 type PlatformState struct {
-	Selected      []ArchiveFile
-	Index         *types.Index
-	Summary       *IndexSummary
-	Media         []types.MediaItem
-	JsonFiles     []types.JsonFileRef
-	Conversations []types.Conversation
-	Loaded        bool
+	Selected []ArchiveFile
+	Summary  *IndexSummary
+	Loaded   bool
 }
 
 func newPlatformState() *PlatformState {
