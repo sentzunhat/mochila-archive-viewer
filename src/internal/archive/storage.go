@@ -397,6 +397,22 @@ func (s *Store) migrate() error {
 	return nil
 }
 
+// ZipPathForUser looks up a single archive zip's path by its ordinal
+// (matches MediaItem.ZipIndex), scoped to platform+user. Used to serve media
+// bytes over HTTP without depending on any in-memory "active session" state
+// — the request's user_id is taken from the URL, not process-global state,
+// so it stays correct even mid a profile switch.
+func (s *Store) ZipPathForUser(platform string, userId int64, zipIndex int) (string, error) {
+	var path string
+	err := s.db.QueryRow(`
+		SELECT path FROM archive_files WHERE platform = ? AND user_id = ? AND ordinal = ?
+	`, platform, userId, zipIndex).Scan(&path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return path, err
+}
+
 func (s *Store) loadSelected(platform string, userId int64) ([]ArchiveFile, error) {
 	rows, err := s.db.Query(`
 		SELECT path, name

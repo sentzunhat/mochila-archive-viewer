@@ -1,7 +1,6 @@
 package archive
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -467,23 +466,6 @@ func (s *Service) GetConversation(platform, id string) (*types.Conversation, err
 	return nil, nil
 }
 
-// MediaItem looks up a media item by ID within a platform's index.
-func (s *Service) MediaItem(platform string, id int) *types.MediaItem {
-	ps := s.platforms[platform]
-	if ps == nil || id < 0 {
-		return nil
-	}
-	if ps.Index != nil && id < len(ps.Index.Media) {
-		m := ps.Index.Media[id]
-		return &m
-	}
-	if len(ps.Media) > 0 && id < len(ps.Media) {
-		m := ps.Media[id]
-		return &m
-	}
-	return nil
-}
-
 // ZipPath returns the file path of a zip by index within a platform.
 func (s *Service) ZipPath(platform string, zipIndex int) string {
 	ps := s.platforms[platform]
@@ -587,34 +569,34 @@ func (s *Service) GetMediaItem(platform string, id int) (*types.MediaItem, error
 	return s.store.MediaItemByID(platform, id, s.activeUserId)
 }
 
-func (s *Service) MediaSource(platform string, id int) (string, error) {
-	item := s.MediaItem(platform, id)
+// MediaBytesForUser reads a media item's raw bytes directly from the store
+// and its source zip, scoped to an explicit userId rather than the
+// service's process-global activeUserId. Used by the HTTP media handler:
+// browsers cache GET responses by URL, so correctness for a specific user
+// has to come from the request itself (the URL's userId segment), not from
+// whichever profile happens to be "active" in the service at request time
+// — those can be different mid a profile switch, and unlike RPC calls,
+// an HTTP response can outlive the request in the browser's cache.
+func (s *Service) MediaBytesForUser(platform string, userId int64, id int) ([]byte, string, error) {
+	item, err := s.store.MediaItemByID(platform, id, userId)
+	if err != nil {
+		return nil, "", err
+	}
 	if item == nil {
-		return "", fmt.Errorf("media item %d not found", id)
+		return nil, "", fmt.Errorf("media item %d not found", id)
 	}
-	if item.LocalPath != "" {
-		if _, err := os.Stat(item.LocalPath); err == nil {
-			return s.mediaRenderableSource(item)
-		}
+	zipPath, err := s.store.ZipPathForUser(platform, userId, item.ZipIndex)
+	if err != nil {
+		return nil, "", err
 	}
-
-	zipPath := s.ZipPath(platform, item.ZipIndex)
 	if zipPath == "" {
-		return "", fmt.Errorf("zip path for media %d not found", id)
+		return nil, "", fmt.Errorf("zip path for media %d not found", id)
 	}
 	data, err := snapchat.ReadEntry(zipPath, item.Entry)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	target, err := s.mediaCachePath(platform, item.ID, item.Ext)
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(target, data, 0o644); err != nil {
-		return "", err
-	}
-	item.LocalPath = target
-	return s.mediaRenderableSource(item)
+	return data, item.Ext, nil
 }
 
 func (s *Service) cacheMediaFiles(platform string, idx *types.Index) error {
@@ -650,36 +632,3 @@ func (s *Service) mediaCachePath(platform string, id int, ext string) (string, e
 	return filepath.Join(root, fmt.Sprintf("%06d.%s", id, ext)), nil
 }
 
-func (s *Service) mediaRenderableSource(item *types.MediaItem) (string, error) {
-	if item == nil || item.LocalPath == "" {
-		return "", errors.New("media source is unavailable")
-	}
-	raw, err := os.ReadFile(item.LocalPath)
-	if err != nil {
-		return "", err
-	}
-	return "data:" + mimeFromExt(item.Ext) + ";base64," + base64.StdEncoding.EncodeToString(raw), nil
-}
-
-func mimeFromExt(ext string) string {
-	switch ext {
-	case "jpg", "jpeg":
-		return "image/jpeg"
-	case "png":
-		return "image/png"
-	case "webp":
-		return "image/webp"
-	case "gif":
-		return "image/gif"
-	case "heic":
-		return "image/heic"
-	case "mp4":
-		return "video/mp4"
-	case "mov":
-		return "video/quicktime"
-	case "webm":
-		return "video/webm"
-	default:
-		return "application/octet-stream"
-	}
-}

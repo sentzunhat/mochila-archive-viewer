@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"mochila-archive-viewer/src/internal/archive"
-	"mochila-archive-viewer/src/internal/providers/snapchat"
 	"mochila-archive-viewer/src/internal/types"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -298,13 +297,6 @@ func (a *App) GetJSONPreview(platform string, ordinal int) (*archive.JSONPreview
 	return a.service.JSONPreview(platform, ordinal)
 }
 
-func (a *App) GetMediaSource(platform string, id int) (string, error) {
-	if a.initErr != nil {
-		return "", a.initErr
-	}
-	return a.service.MediaSource(platform, id)
-}
-
 func (a *App) SaveProfile(username, fullName string) (*archive.Profile, error) {
 	if a.initErr != nil {
 		return nil, a.initErr
@@ -347,39 +339,37 @@ func (a *App) SelectUser(id int64) (*archive.Profile, error) {
 	return a.service.SelectUser(id)
 }
 
-// ServeHTTP handles /media/{platform}/{id} requests from the webview.
+// ServeHTTP handles /media/{platform}/{userId}/{id} requests from the
+// webview. userId comes from the URL, not the service's active-session
+// state — browser GET responses can be cached by URL, and media_id is only
+// unique per (platform, user_id), so correctness has to be self-contained
+// in the request rather than depend on whichever profile happens to be
+// "active" in the process when the request is handled.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// path: /media/{platform}/{id}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/media/"), "/")
-	if len(parts) != 2 {
+	if len(parts) != 3 {
 		http.NotFound(w, r)
 		return
 	}
 	platform := parts[0]
-	id, err := strconv.Atoi(parts[1])
+	userId, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	id, err := strconv.Atoi(parts[2])
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	item := a.service.MediaItem(platform, id)
-	if item == nil {
-		http.NotFound(w, r)
-		return
-	}
-	zipPath := a.service.ZipPath(platform, item.ZipIndex)
-	if zipPath == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	data, err := snapchat.ReadEntry(zipPath, item.Entry)
+	data, ext, err := a.service.MediaBytesForUser(platform, userId, id)
 	if err != nil || data == nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	w.Header().Set("Content-Type", mimeFor(item.Ext))
+	w.Header().Set("Content-Type", mimeFor(ext))
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.Write(data)

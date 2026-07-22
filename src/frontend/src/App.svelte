@@ -14,7 +14,6 @@
     GetConversations,
     GetConversation,
     GetJSONPreview,
-    GetMediaSource,
     GetMediaItem,
     SelectArchiveZips,
     IndexArchives,
@@ -111,8 +110,6 @@
   let jsonPreview: JSONPreview | null = null;
   let selectedMedia: MediaItem | null = null;
   let searchQuery = "";
-  let mediaSources: Record<number, string> = {};
-  let mediaLoading: Record<number, "pending" | "resolved" | "failed"> = {};
   let profileOpen = false;
   let settingsOpen = false;
   let profileUsername = "";
@@ -240,64 +237,24 @@
     return item.entry.split("/").at(-1) ?? item.entry;
   }
 
-  function sourceFor(item: MediaItem) {
-    if (mediaSources[item.id]) return mediaSources[item.id];
-    return "";
-  }
-
-  async function ensureMediaSources(items: MediaItem[]) {
-    const pending = items.filter((item) => {
-      if (mediaSources[item.id]) return false;
-      if (mediaLoading[item.id] === "resolved") return false;
-      if (mediaLoading[item.id] === "pending") return false;
-      return true;
-    }).slice(0, 50);
-    if (pending.length === 0) return;
-
-    const updates: Record<number, string> = {};
-    // Mark all as pending first
-    for (const item of pending) {
-      mediaLoading[item.id] = "pending";
-    }
-    mediaLoading = { ...mediaLoading };
-
-    await Promise.all(
-      pending.map(async (item) => {
-        try {
-          const source = await GetMediaSource(activePlatform, item.id);
-          if (source && source.length > 0) {
-            updates[item.id] = source;
-            mediaLoading[item.id] = "resolved";
-          } else {
-            mediaLoading[item.id] = "failed";
-          }
-        } catch (caught) {
-          // A single tile failing to load should not take down the whole app.
-          mediaLoading[item.id] = "failed";
-        }
-      }),
-    );
-    mediaSources = { ...mediaSources, ...updates };
-  }
-
-  // Reactive: auto-fetch sources for visible media (gallery view, filter changes)
-  $: if (!loading && summary && visibleMedia.length > 0) {
-    const unsourced = visibleMedia.filter(
-      (m) => !mediaSources[m.id] && mediaLoading[m.id] !== "resolved" && mediaLoading[m.id] !== "pending",
-    );
-    if (unsourced.length > 0) {
-      ensureMediaSources(unsourced);
-    }
-  }
-
-  // Reactive: auto-fetch sources for today view items
-  $: if (!loading && summary && onThisDayMedia.length > 0) {
-    const unsourced = onThisDayMedia.filter(
-      (m) => !mediaSources[m.id] && mediaLoading[m.id] !== "resolved" && mediaLoading[m.id] !== "pending",
-    );
-    if (unsourced.length > 0) {
-      ensureMediaSources(unsourced);
-    }
+  // Media is served directly over HTTP by the Go backend (appshell.ServeHTTP,
+  // registered as the Wails asset server's fallback handler) rather than
+  // fetched as a base64 data: URI over the Wails RPC bridge. The previous
+  // approach read entire files (including multi-MB videos) into memory,
+  // base64-inflated them (~33% larger), and serialized the result as a JSON
+  // string over the same channel used for every other RPC call — with up to
+  // 180 media items in a page, switching a filter while the old page's
+  // fetches were still in flight visibly stalled the UI for several seconds.
+  // A plain <img>/<video src> lets the browser's own HTTP stack handle
+  // loading, concurrency (browsers cap ~6 per origin), and caching (see the
+  // Cache-Control header ServeHTTP sets) for free.
+  function mediaHttpSrc(platform: string, id: number) {
+    // media_id is only unique per (platform, user_id) — the userId segment
+    // isn't just informational, it's required for correctness: browsers
+    // cache GET responses by URL, and without it, switching profiles mid
+    // session could serve one user's cached photo at another user's
+    // same-numbered id.
+    return `/media/${platform}/${appState.profile.id}/${id}`;
   }
 
   // Reactive: load the selected conversation's messages once its summary
@@ -314,20 +271,6 @@
     conversations.length > 0
   ) {
     openConversation(selectedConversationId);
-  }
-
-  // Reactive: fetch thumbnail sources for the open conversation's linked
-  // media (message.mediaId, resolved backend-side — see 017). Shares the
-  // mediaSources/mediaLoading cache with the gallery, so a thumbnail already
-  // seen there loads instantly here too.
-  $: if (!loading && selectedConversation?.messages?.length) {
-    const unsourced = selectedConversation.messages
-      .filter((m): m is ChatMessage & { mediaId: number } => m.mediaId != null)
-      .filter((m) => !mediaSources[m.mediaId] && mediaLoading[m.mediaId] !== "resolved" && mediaLoading[m.mediaId] !== "pending")
-      .map((m) => ({ id: m.mediaId } as MediaItem));
-    if (unsourced.length > 0) {
-      ensureMediaSources(unsourced);
-    }
   }
 
   // Media items opened from a chat message, keyed by id, so re-opening the
@@ -350,30 +293,9 @@
     }
   }
 
-  async function retryFailedSources(items: MediaItem[]) {
-    const failed = items.filter((item) => mediaLoading[item.id] === "failed");
-    if (failed.length === 0) return;
-    for (const item of failed) {
-      try {
-        const source = await GetMediaSource(activePlatform, item.id);
-        if (source && source.length > 0) {
-          mediaSources[item.id] = source;
-          mediaLoading[item.id] = "resolved";
-        } else {
-          mediaLoading[item.id] = "failed";
-        }
-      } catch {
-        mediaLoading[item.id] = "failed";
-      }
-    }
-    mediaSources = { ...mediaSources };
-    mediaLoading = { ...mediaLoading };
-  }
-
   async function loadPlatform(pid: string) {
     activePlatform = pid;
     error = null;
-    mediaSources = {};
 
     const snapshot: PlatformSnapshot | null = await GetPlatformSnapshot(pid);
     selected = snapshot?.selected ?? [];
@@ -398,7 +320,6 @@
     if (jsonFiles.length > 0) {
       await openJSONFile(0);
     }
-    await ensureMediaSources(media.slice(0, 180));
   }
 
     // ── Login/Logout handlers ──
@@ -433,8 +354,6 @@
     selectedPlatform = null;
     currentOffset = 0;
     hasMoreMedia = true;
-    mediaSources = {};
-    mediaLoading = {};
     // Conversation ids are not globally unique (e.g. "teamsnapchat" is a
     // system account shared by every user) — clear so the next login's
     // auto-load reactive doesn't skip a same-id conversation as "already
@@ -478,7 +397,6 @@
     totalMediaCount = 0;
     currentOffset = 0;
     hasMoreMedia = true;
-    mediaLoading = {};
     try {
       // Refresh the snapshot for the active user before paging media —
       // the onMount snapshot may belong to a previously active user.
@@ -551,8 +469,6 @@
       paginatedMedia = [];
       currentOffset = 0;
       hasMoreMedia = true;
-      mediaSources = {};
-      mediaLoading = {};
       // Force-unblock loadMediaBatch's in-flight guard so this newer
       // request starts immediately rather than waiting for a superseded
       // one to finish.
@@ -681,7 +597,6 @@ onMount(async () => {
       selectedJSONIndex = 0;
       jsonPreview = null;
       structureSection = "paths";
-      mediaSources = {};
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -705,9 +620,7 @@ onMount(async () => {
       selectedCategory = "all";
       selectedType = "all";
       structureSection = "paths";
-      mediaSources = {};
-      await ensureMediaSources(media.slice(0, 60));
-      
+
       // After indexing, refresh dashboard if visible
       if (showDashboard && selectedPlatform === activePlatform) {
         await loadPlatformDashboard();
@@ -779,8 +692,6 @@ onMount(async () => {
       profileFullName = profile.fullName ?? "";
       profileOpen = false;
       // Reload platform data for the new user
-      mediaSources = {};
-      mediaLoading = {};
       loadedConversationIds.clear();
       await loadPlatform(activePlatform);
     } catch (caught) {
@@ -890,7 +801,7 @@ onMount(async () => {
           <button class="load-more" on:click={() => { showDashboard = false; }}>Open archive explorer</button>
         </section>
       {/if}
-      <div class="grid gap-6" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
+      <div class="grid gap-6 grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
         {#each platformStatsList as stat}
           {@const theme = platformThemes[stat.id] ?? platformThemes.snapchat}
           <div
@@ -1080,7 +991,7 @@ onMount(async () => {
         <aside class="year-list" aria-label="Years">
           <button class:active={selectedYear === "all"} on:click={() => setYear("all")}>
             <strong>All</strong>
-            <span class="bar"><span style="width:100%"></span></span>
+            <span class="bar"><span class="w-full"></span></span>
             <em>{formatter.format(summary.mediaCount)}</em>
           </button>
           {#each years as [year, count]}
@@ -1105,15 +1016,9 @@ onMount(async () => {
                 <article class="tile">
                   <button class="preview" on:click={() => (selectedMedia = item)} aria-label={`Open ${mediaName(item)}`}>
                     {#if item.type === "image"}
-                      {#if sourceFor(item)}
-                        <img loading="lazy" src={sourceFor(item)} alt={mediaName(item)} />
-                      {:else}
-                        <div class="placeholder">Loading image…</div>
-                      {/if}
-                    {:else if sourceFor(item)}
-                      <video preload="metadata" controls muted src={sourceFor(item)} playsinline></video>
+                      <img loading="lazy" src={mediaHttpSrc(activePlatform, item.id)} alt={mediaName(item)} />
                     {:else}
-                      <div class="placeholder">Loading video…</div>
+                      <video preload="metadata" controls muted src={mediaHttpSrc(activePlatform, item.id)} playsinline></video>
                     {/if}
                   </button>
                   <div class="tile-meta">
@@ -1129,7 +1034,7 @@ onMount(async () => {
                 {isLoadingMore ? "Loading..." : `Load more (${paginatedMedia.length} of ${totalMediaCount.toLocaleString()})`}
               </button>
               <!-- Infinite scroll sentinel -->
-              <div bind:this={sentinelRef} style="height:1px;"></div>
+              <div bind:this={sentinelRef} class="h-px"></div>
             {/if}
           {/if}
         </div>
@@ -1151,12 +1056,10 @@ onMount(async () => {
             {#each onThisDayMedia as item (item.id)}
               <article class="tile">
                 <button class="preview" on:click={() => (selectedMedia = item)} aria-label={`Open ${mediaName(item)}`}>
-                  {#if item.type === "image" && sourceFor(item)}
-                    <img loading="lazy" src={sourceFor(item)} alt={mediaName(item)} />
-                  {:else if sourceFor(item)}
-                    <video preload="metadata" controls muted src={sourceFor(item)} playsinline></video>
+                  {#if item.type === "image"}
+                    <img loading="lazy" src={mediaHttpSrc(activePlatform, item.id)} alt={mediaName(item)} />
                   {:else}
-                    <div class="placeholder">Loading…</div>
+                    <video preload="metadata" controls muted src={mediaHttpSrc(activePlatform, item.id)} playsinline></video>
                   {/if}
                 </button>
                 <div class="tile-meta">
@@ -1220,14 +1123,10 @@ onMount(async () => {
                       on:click={() => openMessageMedia(message.mediaId)}
                       aria-label="Open attached media"
                     >
-                      {#if mediaSources[message.mediaId]}
-                        {#if message.linkedMediaType === "video"}
-                          <video preload="metadata" muted class="block max-h-56 w-full object-cover" src={mediaSources[message.mediaId]}></video>
-                        {:else}
-                          <img loading="lazy" class="block max-h-56 w-full object-cover" src={mediaSources[message.mediaId]} alt="Attached media" />
-                        {/if}
+                      {#if message.linkedMediaType === "video"}
+                        <video preload="metadata" muted class="block max-h-56 w-full object-cover" src={mediaHttpSrc(activePlatform, message.mediaId)}></video>
                       {:else}
-                        <span class="block px-3 py-6 text-center text-xs text-archive-muted">Loading media…</span>
+                        <img loading="lazy" class="block max-h-56 w-full object-cover" src={mediaHttpSrc(activePlatform, message.mediaId)} alt="Attached media" />
                       {/if}
                     </button>
                   {/if}
@@ -1341,10 +1240,10 @@ onMount(async () => {
       <div class="media-modal" role="dialog" aria-modal="true" aria-label={mediaName(selectedMedia)} tabindex="-1" on:click|stopPropagation on:keydown={(e) => e.key === "Escape" && (selectedMedia = null)}>
         <button class="close-button" on:click={() => (selectedMedia = null)} aria-label="Close">×</button>
         <div class="modal-media">
-          {#if selectedMedia.type === "image" && sourceFor(selectedMedia)}
-            <img src={sourceFor(selectedMedia)} alt={mediaName(selectedMedia)} />
-          {:else if sourceFor(selectedMedia)}
-            <video src={sourceFor(selectedMedia)} controls autoplay>
+          {#if selectedMedia.type === "image"}
+            <img src={mediaHttpSrc(activePlatform, selectedMedia.id)} alt={mediaName(selectedMedia)} />
+          {:else}
+            <video src={mediaHttpSrc(activePlatform, selectedMedia.id)} controls autoplay>
               <track kind="captions" />
             </video>
           {/if}
@@ -1406,36 +1305,23 @@ onMount(async () => {
 
       <section class="settings-section">
         <h3>Display</h3>
-        <div class="setting-row" style="margin-bottom:1rem;">
-          <label for="page-size-slider" style="display:flex;flex-direction:column;gap:0.25rem;">
+        <div class="mb-4">
+          <label for="page-size-slider" class="flex flex-col gap-1">
             <span>Items per page (gallery)</span>
-            <input 
+            <input
               id="page-size-slider"
-              type="range" 
-              min="30" 
-              max="500" 
-              step="10" 
+              type="range"
+              min="30"
+              max="500"
+              step="10"
               value={pageSize}
               on:input={handlePageSizeInput}
-              style="width:100%;max-width:200px;"
+              class="w-full max-w-[200px]"
             />
-            <span style="font-size:0.875rem;color:#9ca3af;">{pageSizeLabel}</span>
+            <span class="text-sm text-archive-muted">{pageSizeLabel}</span>
           </label>
         </div>
-        <dl class="settings-list">
-          <div><dt>Cached sources</dt><dd>{Object.keys(mediaSources).length} media items pre-loaded</dd></div>
-        </dl>
       </section>
-
-      <div class="settings-actions">
-        <button class="secondary-button" on:click={() => {
-          if (confirm("Clear all media cache? This will re-download media on next visit.")) {
-            mediaSources = {};
-            mediaLoading = {};
-            settingsOpen = false;
-          }
-        }}>Clear media cache</button>
-      </div>
     </div>
   </div>
 {/if}

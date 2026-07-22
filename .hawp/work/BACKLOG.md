@@ -36,6 +36,7 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 
 | #   | Title                                                       | Closed     | Plan File                                          |
 | --- | ------------------------------------------------------------ | ---------- | ---------------------------------------------------- |
+| 19  | Serve media over HTTP not base64-RPC (filter-switch fix)      | 2026-07-22 | [closed/2026/07/22/019.md](./closed/2026/07/22/019.md) |
 | 13  | Auto-update support — full end-to-end test passed             | 2026-07-22 | [closed/2026/07/22/013.md](./closed/2026/07/22/013.md) |
 | 18  | Update check blocked by private repo — repo made public      | 2026-07-22 | [closed/2026/07/22/018.md](./closed/2026/07/22/018.md) |
 | 12  | Frontend design system — tokens/spacing/typography           | 2026-07-21 | [closed/2026/07/21/012.md](./closed/2026/07/21/012.md) |
@@ -45,7 +46,6 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 | 14  | Browser-driven UI smoke test of the dev build                 | 2026-07-20 | [closed/2026/07/20/014.md](./closed/2026/07/20/014.md) |
 | 11  | Profile management — multi-user creation/switching            | 2026-07-13 | [closed/2026/07/13/011.md](./closed/2026/07/13/011.md) |
 | 10  | Multi-user isolation — wire profile to indexed data            | 2026-07-13 | [closed/2026/07/13/010.md](./closed/2026/07/13/010.md) |
-| 8   | Fix media source loading gaps across views                    | 2026-07-09 | [closed/2026/07/09/008.md](./closed/2026/07/09/008.md) |
 
 ---
 
