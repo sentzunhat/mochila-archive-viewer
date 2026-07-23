@@ -86,7 +86,7 @@ func (s *Service) ProviderCards() []ProviderCard {
 			Name:        p.Name(),
 			Status:      p.Status(),
 			Description: p.Description(),
-			Supported:   p.ID() == "snapchat" || p.ID() == "instagram",
+			Supported:   p.ID() == "snapchat" || p.ID() == "instagram" || p.ID() == "facebook",
 		})
 	}
 	return cards
@@ -94,9 +94,7 @@ func (s *Service) ProviderCards() []ProviderCard {
 
 func (s *Service) platform(id string) (*PlatformState, error) {
 	switch id {
-	case "snapchat", "instagram":
-	case "facebook":
-		return nil, ErrPlatformNotSupported
+	case "snapchat", "instagram", "facebook":
 	default:
 		return nil, ErrPlatformUnknown
 	}
