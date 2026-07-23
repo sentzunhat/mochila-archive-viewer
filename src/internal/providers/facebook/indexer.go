@@ -104,6 +104,7 @@ func indexZip(zipI int, zipPath string, idx *types.Index, mediaByURI map[string]
 			category := inferCategory(entry)
 
 			item := types.MediaItem{
+				ID:       id,
 				ZipIndex: zipI,
 				Zip:      meta.Name,
 				Entry:    entry,

@@ -4,6 +4,7 @@ package archive
 import (
 	"fmt"
 
+	"mochila-archive-viewer/src/internal/providers/facebook"
 	"mochila-archive-viewer/src/internal/providers/instagram"
 	"mochila-archive-viewer/src/internal/providers/snapchat"
 	"mochila-archive-viewer/src/internal/types"
@@ -75,6 +76,8 @@ func (s *Service) MediaBytesForUser(platform string, userId int64, id int) ([]by
 		data, err = snapchat.ReadEntry(zipPath, item.Entry)
 	case "instagram":
 		data, err = instagram.ReadEntry(zipPath, item.Entry)
+	case "facebook":
+		data, err = facebook.ReadEntry(zipPath, item.Entry)
 	default:
 		return nil, "", fmt.Errorf("unsupported platform %q", platform)
 	}
