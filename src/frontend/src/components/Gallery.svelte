@@ -106,3 +106,176 @@
     {/if}
   </div>
 </section>
+
+<style>
+  .gallery-layout {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 1.5rem;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .year-list {
+    border-right: 1px solid var(--accent-soft);
+    overflow-y: auto;
+    padding: 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .year-list button {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    text-align: left;
+    font-size: 0.875rem;
+    transition: background-color 150ms;
+  }
+
+  .year-list button:hover {
+    background-color: var(--accent-soft);
+  }
+
+  .year-list button.active {
+    background-color: var(--accent-dark);
+    border-color: var(--accent);
+  }
+
+  .year-list strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+  }
+
+  .year-list .bar {
+    display: block;
+    height: 4px;
+    background-color: var(--accent-soft);
+    border-radius: 2px;
+    margin-bottom: 0.25rem;
+    overflow: hidden;
+  }
+
+  .year-list .bar span {
+    display: block;
+    height: 100%;
+    background-color: var(--accent);
+    transition: width 150ms;
+  }
+
+  .year-list em {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--accent-ink);
+    font-style: normal;
+  }
+
+  .gallery-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  .result-line {
+    font-size: 0.875rem;
+    color: var(--accent-ink);
+  }
+
+  .media-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+  }
+
+  .tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+  }
+
+  .preview {
+    background: none;
+    border: 1px solid var(--accent-soft);
+    border-radius: 0.375rem;
+    padding: 0;
+    cursor: pointer;
+    overflow: hidden;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 150ms;
+  }
+
+  .preview:hover {
+    border-color: var(--accent);
+  }
+
+  .preview img,
+  .preview video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .tile-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .tile-meta strong {
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tile-meta span {
+    font-size: 0.625rem;
+    color: var(--accent-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--accent-ink);
+  }
+
+  .load-more {
+    padding: 0.75rem 1rem;
+    background-color: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 0.375rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: background-color 150ms;
+  }
+
+  .load-more:hover:not(:disabled) {
+    background-color: var(--accent-dark);
+  }
+
+  .load-more:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .h-px {
+    height: 1px;
+  }
+</style>
