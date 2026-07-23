@@ -1,29 +1,29 @@
-// Package archive provides the SQLite storage layer and service orchestration
-// for indexing and querying social-media export archives.
 package archive
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mochila-archive-viewer/src/internal/types"
 
 	_ "modernc.org/sqlite"
 )
 
 const sqliteDriver = "sqlite"
 
-// Snapshot holds the startup state restored from the database for one
-// (platform, user) pair. Only Selected and Summary are restored into
-// PlatformState; heavy data (media, conversations, JSON files) is fetched
-// on demand via Store methods.
 type Snapshot struct {
-	Selected []ArchiveFile
-	Summary  *IndexSummary
+	Selected      []ArchiveFile
+	Summary       *IndexSummary
+	Media         []types.MediaItem
+	JsonFiles     []types.JsonFileRef
+	Conversations []types.Conversation
 }
 
-// Profile represents a local user account (one per Snapchat/IG/FB username).
 type Profile struct {
 	ID       int64  `json:"id"`
 	Username string `json:"username"`
@@ -31,15 +31,11 @@ type Profile struct {
 	LoggedIn bool   `json:"loggedIn"`
 }
 
-// Store wraps the SQLite database and exposes repository-level operations.
-// All methods are scoped to (platform, user_id) — media_id is only unique
-// within that pair, never globally.
 type Store struct {
 	db   *sql.DB
 	path string
 }
 
-// OpenStore opens (and migrates) the SQLite database at ~/.mochila/database.sqlite.
 func OpenStore() (*Store, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -66,7 +62,6 @@ func OpenStore() (*Store, error) {
 	return store, nil
 }
 
-// Close closes the underlying database connection.
 func (s *Store) Close() error {
 	if s == nil || s.db == nil {
 		return nil
@@ -74,7 +69,6 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Path returns the absolute path of the SQLite database file.
 func (s *Store) Path() string {
 	if s == nil {
 		return ""
@@ -82,7 +76,6 @@ func (s *Store) Path() string {
 	return s.path
 }
 
-// RootDir returns the directory that contains the database file (~/.mochila).
 func (s *Store) RootDir() string {
 	if s == nil {
 		return ""
@@ -90,42 +83,193 @@ func (s *Store) RootDir() string {
 	return filepath.Dir(s.path)
 }
 
-// ProvidersRoot returns the root directory for all provider-specific artifacts.
 func (s *Store) ProvidersRoot() string {
 	return filepath.Join(s.RootDir(), "indexed", "providers")
 }
 
-// ProviderRoot returns the artifact directory for a single provider.
 func (s *Store) ProviderRoot(platform string) string {
 	return filepath.Join(s.ProvidersRoot(), platform)
 }
 
-// ProviderMediaRoot returns the cached-media directory for a provider.
-// This directory is populated by older index runs but is no longer read by the
-// HTTP media handler (which reads from zips directly). It is kept for
-// backwards compatibility with existing indexed archives.
 func (s *Store) ProviderMediaRoot(platform string) string {
 	return filepath.Join(s.ProviderRoot(platform), "media")
 }
 
-// ProviderSnapshotPath returns the JSON snapshot file path for a provider.
 func (s *Store) ProviderSnapshotPath(platform string) string {
 	return filepath.Join(s.ProviderRoot(platform), "snapshot.json")
 }
 
+func (s *Store) SaveSnapshot(platform string, userId int64, selected []ArchiveFile, idx *types.Index, conversations []types.Conversation) error {
+	if idx == nil {
+		return errors.New("cannot save empty archive index")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		INSERT INTO platform_snapshots(platform, user_id, media_count, zip_count)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(platform) DO UPDATE SET media_count = excluded.media_count, zip_count = excluded.zip_count
+	`, platform, userId, len(idx.Media), len(idx.Zips)); err != nil {
+		return err
+	}
+
+	for _, table := range []string{"archive_files", "media_items", "json_files", "conversations", "messages"} {
+		if _, err := tx.Exec("DELETE FROM "+table+" WHERE platform = ? AND user_id = ?", platform, userId); err != nil {
+			return err
+		}
+	}
+
+	for i, file := range selected {
+		if _, err := tx.Exec(`
+			INSERT OR REPLACE INTO archive_files(platform, user_id, ordinal, path, name)
+			VALUES (?, ?, ?, ?, ?)
+		`, platform, userId, i, file.Path, file.Name); err != nil {
+			return err
+		}
+	}
+
+	for _, item := range idx.Media {
+		if _, err := tx.Exec(`
+			INSERT OR REPLACE INTO media_items(platform, user_id, media_id, zip_index, zip, entry, category, date, year, type, ext, local_path)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, platform, userId, item.ID, item.ZipIndex, item.Zip, item.Entry, item.Category, item.Date, item.Year, item.Type, item.Ext, item.LocalPath); err != nil {
+			return err
+		}
+	}
+
+	for ordinal, item := range idx.JsonFiles {
+		if _, err := tx.Exec(`
+			INSERT OR REPLACE INTO json_files(platform, user_id, ordinal, zip_index, zip, entry)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, platform, userId, ordinal, item.ZipIndex, item.Zip, item.Entry); err != nil {
+			return err
+		}
+	}
+
+	for _, convo := range conversations {
+		if _, err := tx.Exec(`
+			INSERT OR REPLACE INTO conversations(platform, user_id, conversation_id, title, message_count, saved_count, media_count, last_created)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, platform, userId, convo.ID, convo.Title, convo.MessageCount, convo.SavedCount, convo.MediaCount, convo.LastCreated); err != nil {
+			return err
+		}
+
+		for ordinal, msg := range convo.Messages {
+			if _, err := tx.Exec(`
+				INSERT OR REPLACE INTO messages(platform, user_id, conversation_id, ordinal, from_name, content, media_type, created, is_sender, is_saved, media_ids)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, platform, userId, convo.ID, ordinal, msg.From, msg.Content, msg.MediaType, msg.Created, boolToInt(msg.IsSender), boolToInt(msg.IsSaved), msg.MediaIDs); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) SaveSelection(platform string, userId int64, selected []ArchiveFile) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Use INSERT OR REPLACE to handle old schema PKs that lack user_id in the key.
+	for i, file := range selected {
+		if _, err := tx.Exec(`
+			INSERT OR REPLACE INTO archive_files(platform, user_id, ordinal, path, name)
+			VALUES (?, ?, ?, ?, ?)
+		`, platform, userId, i, file.Path, file.Name); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) LoadSnapshot(platform string, userId int64) (*Snapshot, error) {
+	selected, err := s.loadSelected(platform, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	summary, err := s.loadSummary(platform, userId)
+	if err != nil {
+		return nil, err
+	}
+	if summary == nil {
+		return &Snapshot{Selected: selected}, nil
+	}
+
+	media, err := s.loadMedia(platform, "all", userId)
+	if err != nil {
+		return nil, err
+	}
+	jsonFiles, err := s.loadJSONFiles(platform, userId)
+	if err != nil {
+		return nil, err
+	}
+	conversations, err := s.loadConversations(platform, true, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Snapshot{
+		Selected:      selected,
+		Summary:       summary,
+		Media:         media,
+		JsonFiles:     jsonFiles,
+		Conversations: conversations,
+	}, nil
+}
+
+func (s *Store) SelectedArchives(platform string, userId int64) ([]ArchiveFile, error) {
+	return s.loadSelected(platform, userId)
+}
+
+func (s *Store) Summary(platform string, userId int64) (*IndexSummary, error) {
+	return s.loadSummary(platform, userId)
+}
+
+func (s *Store) Media(platform, year string, userId int64) ([]types.MediaItem, error) {
+	return s.loadMedia(platform, year, userId)
+}
+
+func (s *Store) Conversations(platform string, userId int64) ([]types.Conversation, error) {
+	return s.loadConversations(platform, false, userId)
+}
+
+func (s *Store) JSONFiles(platform string, userId int64) ([]types.JsonFileRef, error) {
+	return s.loadJSONFiles(platform, userId)
+}
+
+func (s *Store) Conversation(platform, id string, userId int64) (*types.Conversation, error) {
+	convos, err := s.loadConversations(platform, true, userId)
+	if err != nil {
+		return nil, err
+	}
+	for i := range convos {
+		if convos[i].ID == id {
+			return &convos[i], nil
+		}
+	}
+	return nil, nil
+}
+
 func (s *Store) migrate() error {
-	// Phase 1: create tables (idempotent — CREATE TABLE IF NOT EXISTS).
-	// platform_snapshots uses a compound PK so each (platform, user) has its
-	// own row; a single-column PK would cause the second user's index to
-	// silently overwrite the first's counts.
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS platform_snapshots (
-			platform TEXT NOT NULL,
+			platform TEXT PRIMARY KEY,
 			user_id INTEGER NOT NULL DEFAULT 1,
 			media_count INTEGER NOT NULL,
-			zip_count INTEGER NOT NULL,
-			PRIMARY KEY(platform, user_id)
+			zip_count INTEGER NOT NULL
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_snapshots_platform_user ON platform_snapshots(platform, user_id)`,
 		`CREATE TABLE IF NOT EXISTS archive_files (
 			platform TEXT NOT NULL,
 			user_id INTEGER NOT NULL DEFAULT 1,
@@ -134,6 +278,7 @@ func (s *Store) migrate() error {
 			name TEXT NOT NULL,
 			PRIMARY KEY(platform, user_id, ordinal)
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_archive_files_platform_user ON archive_files(platform, user_id)`,
 		`CREATE TABLE IF NOT EXISTS media_items (
 			platform TEXT NOT NULL,
 			user_id INTEGER NOT NULL DEFAULT 1,
@@ -146,8 +291,12 @@ func (s *Store) migrate() error {
 			year TEXT NOT NULL,
 			type TEXT NOT NULL,
 			ext TEXT NOT NULL,
+			local_path TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY(platform, user_id, media_id)
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_items_platform_user ON media_items(platform, user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_items_type ON media_items(platform, user_id, type)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_items_year ON media_items(platform, user_id, year, media_id)`,
 		`CREATE TABLE IF NOT EXISTS json_files (
 			platform TEXT NOT NULL,
 			user_id INTEGER NOT NULL DEFAULT 1,
@@ -157,6 +306,7 @@ func (s *Store) migrate() error {
 			entry TEXT NOT NULL,
 			PRIMARY KEY(platform, user_id, ordinal)
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_json_files_platform_user ON json_files(platform, user_id)`,
 		`CREATE TABLE IF NOT EXISTS conversations (
 			platform TEXT NOT NULL,
 			user_id INTEGER NOT NULL DEFAULT 1,
@@ -168,6 +318,7 @@ func (s *Store) migrate() error {
 			last_created TEXT NOT NULL,
 			PRIMARY KEY(platform, user_id, conversation_id)
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_conversations_platform_user ON conversations(platform, user_id)`,
 		`CREATE TABLE IF NOT EXISTS messages (
 			platform TEXT NOT NULL,
 			user_id INTEGER NOT NULL DEFAULT 1,
@@ -182,6 +333,7 @@ func (s *Store) migrate() error {
 			media_ids TEXT NOT NULL,
 			PRIMARY KEY(platform, user_id, conversation_id, ordinal)
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_platform_user_convo ON messages(platform, user_id, conversation_id)`,
 		`CREATE TABLE IF NOT EXISTS profile (
 			profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			username TEXT NOT NULL UNIQUE,
@@ -198,47 +350,23 @@ func (s *Store) migrate() error {
 		}
 	}
 
-	// Phase 2: backwards-compatible column additions for existing databases.
+	// Backwards-compatible column additions for existing databases
 	cols := map[string]string{
-		"archive_files": "user_id INTEGER NOT NULL DEFAULT 1",
-		"media_items":   "user_id INTEGER NOT NULL DEFAULT 1",
-		"json_files":    "user_id INTEGER NOT NULL DEFAULT 1",
-		"conversations": "user_id INTEGER NOT NULL DEFAULT 1",
-		"messages":      "user_id INTEGER NOT NULL DEFAULT 1",
+		"platform_snapshots": "user_id INTEGER NOT NULL DEFAULT 1",
+		"archive_files":      "user_id INTEGER NOT NULL DEFAULT 1",
+		"media_items":        "user_id INTEGER NOT NULL DEFAULT 1",
+		"json_files":         "user_id INTEGER NOT NULL DEFAULT 1",
+		"conversations":      "user_id INTEGER NOT NULL DEFAULT 1",
+		"messages":           "user_id INTEGER NOT NULL DEFAULT 1",
 	}
 	for tbl, col := range cols {
 		if _, err := s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", tbl, col)); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("migrate table %s: %w", tbl, err)
 		}
 	}
-	// Backwards-compat for media_items: local_path column may exist in older DBs.
-	s.db.Exec("ALTER TABLE media_items ADD COLUMN local_path TEXT NOT NULL DEFAULT ''")
 
-	// Phase 3: migrate platform_snapshots to compound PK when the existing table
-	// has a single-column PK (created before the multi-user schema).
-	var pkColCount int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('platform_snapshots') WHERE pk > 0`).Scan(&pkColCount); err == nil && pkColCount < 2 {
-		if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS platform_snapshots_new (
-			platform TEXT NOT NULL,
-			user_id INTEGER NOT NULL DEFAULT 1,
-			media_count INTEGER NOT NULL,
-			zip_count INTEGER NOT NULL,
-			PRIMARY KEY(platform, user_id)
-		)`); err != nil {
-			return fmt.Errorf("migrate platform_snapshots_new create: %w", err)
-		}
-		if _, err := s.db.Exec(`INSERT OR IGNORE INTO platform_snapshots_new SELECT platform, COALESCE(user_id, 1), media_count, zip_count FROM platform_snapshots`); err != nil {
-			return fmt.Errorf("migrate platform_snapshots_new copy: %w", err)
-		}
-		if _, err := s.db.Exec(`DROP TABLE platform_snapshots`); err != nil {
-			return fmt.Errorf("migrate platform_snapshots drop: %w", err)
-		}
-		if _, err := s.db.Exec(`ALTER TABLE platform_snapshots_new RENAME TO platform_snapshots`); err != nil {
-			return fmt.Errorf("migrate platform_snapshots rename: %w", err)
-		}
-	}
-
-	// Phase 4: profile table recreation for multi-user schema (removes single-user CHECK constraint).
+	// Migrate profile: recreate with multi-user support if it still has CHECK constraint
+	// Count columns to detect old single-user schema
 	rows, err := s.db.Query(`PRAGMA table_info(profile)`)
 	if err != nil {
 		return fmt.Errorf("pragma profile: %w", err)
@@ -256,42 +384,328 @@ func (s *Store) migrate() error {
 	rows.Close()
 
 	if count <= 4 {
-		if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS profile_new (
+		// Old schema (profile_id, username, full_name, logged_in) — recreate with new schema
+		if _, err := s.db.Exec(`CREATE TABLE profile_new (
 			profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			username TEXT NOT NULL UNIQUE,
 			full_name TEXT NOT NULL DEFAULT '',
 			logged_in INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)`); err != nil && !strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("migrate profile_new create: %w", err)
+		)`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("migrate profile new: %w", err)
 		}
-		if _, err := s.db.Exec(`INSERT OR IGNORE INTO profile_new (username, full_name, logged_in, created_at, updated_at)
-			SELECT username, full_name, logged_in, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM profile WHERE profile_id = 1`); err != nil {
-			return fmt.Errorf("migrate profile_new copy: %w", err)
-		}
-		if _, err := s.db.Exec(`DROP TABLE IF EXISTS profile`); err != nil {
-			return fmt.Errorf("migrate profile drop: %w", err)
-		}
-		if _, err := s.db.Exec(`ALTER TABLE profile_new RENAME TO profile`); err != nil && !strings.Contains(err.Error(), "no such table: profile_new") {
-			return fmt.Errorf("migrate profile rename: %w", err)
-		}
-	}
-
-	// Phase 5: indexes on frequently-filtered columns not already covered by PKs.
-	indexes := []string{
-		`CREATE INDEX IF NOT EXISTS idx_media_items_platform_user_year     ON media_items(platform, user_id, year)`,
-		`CREATE INDEX IF NOT EXISTS idx_media_items_platform_user_type     ON media_items(platform, user_id, type)`,
-		`CREATE INDEX IF NOT EXISTS idx_media_items_platform_user_category ON media_items(platform, user_id, category)`,
-		`CREATE INDEX IF NOT EXISTS idx_profile_logged_in                  ON profile(logged_in)`,
-	}
-	for _, idx := range indexes {
-		if _, err := s.db.Exec(idx); err != nil {
-			return fmt.Errorf("create index: %w", err)
-		}
+		s.db.Exec(`INSERT OR IGNORE INTO profile_new (username, full_name, logged_in, created_at, updated_at)
+			SELECT username, full_name, logged_in, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM profile WHERE profile_id = 1`)
+		s.db.Exec(`DROP TABLE IF EXISTS profile`)
+		s.db.Exec(`ALTER TABLE profile_new RENAME TO profile`)
 	}
 
 	return nil
+}
+
+func (s *Store) loadSelected(platform string, userId int64) ([]ArchiveFile, error) {
+	rows, err := s.db.Query(`
+		SELECT path, name
+		FROM archive_files
+		WHERE platform = ? AND user_id = ?
+		ORDER BY ordinal
+	`, platform, userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []ArchiveFile{}
+	for rows.Next() {
+		var item ArchiveFile
+		if err := rows.Scan(&item.Path, &item.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) loadSummary(platform string, userId int64) (*IndexSummary, error) {
+	var mediaCount, zipCount int
+	err := s.db.QueryRow(`
+		SELECT media_count, zip_count
+		FROM platform_snapshots
+		WHERE platform = ? AND user_id = ?
+	`, platform, userId).Scan(&mediaCount, &zipCount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	years, err := s.loadGroupedCounts(platform, "year", userId)
+	if err != nil {
+		return nil, err
+	}
+	types, err := s.loadGroupedCounts(platform, "type", userId)
+	if err != nil {
+		return nil, err
+	}
+	categories, err := s.loadGroupedCounts(platform, "category", userId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &IndexSummary{
+		Platform:   platform,
+		MediaCount: mediaCount,
+		ZipCount:   zipCount,
+		Years:      years,
+		Types:      types,
+		Categories: categories,
+	}, nil
+}
+
+func (s *Store) loadGroupedCounts(platform, field string, userId int64) (map[string]int, error) {
+	switch field {
+	case "year", "type", "category":
+	default:
+		return nil, fmt.Errorf("unsupported group field %q", field)
+	}
+
+	rows, err := s.db.Query(`
+		SELECT `+field+`, COUNT(*)
+		FROM media_items
+		WHERE platform = ? AND user_id = ?
+		GROUP BY `+field, platform, userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]int)
+	for rows.Next() {
+		var key string
+		var count int
+		if err := rows.Scan(&key, &count); err != nil {
+			return nil, err
+		}
+		out[key] = count
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) loadMedia(platform, year string, userId int64) ([]types.MediaItem, error) {
+	query := `
+		SELECT media_id, zip_index, zip, entry, category, date, year, type, ext, local_path
+		FROM media_items
+		WHERE platform = ? AND user_id = ?
+	`
+	args := []any{platform, userId}
+	if year != "" && year != "all" {
+		query += " AND year = ?"
+		args = append(args, year)
+	}
+	query += " ORDER BY media_id"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []types.MediaItem{}
+	for rows.Next() {
+		var item types.MediaItem
+		if err := rows.Scan(&item.ID, &item.ZipIndex, &item.Zip, &item.Entry, &item.Category, &item.Date, &item.Year, &item.Type, &item.Ext, &item.LocalPath); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// MediaPaginated returns a page of media items for a platform, filtered by year.
+func (s *Store) MediaPaginated(platform, year string, userId, offset, limit int64) ([]types.MediaItem, error) {
+	query := `
+		SELECT media_id, zip_index, zip, entry, category, date, year, type, ext, local_path
+		FROM media_items
+		WHERE platform = ? AND user_id = ?
+	`
+	args := []any{platform, userId}
+	if year != "" && year != "all" {
+		query += " AND year = ?"
+		args = append(args, year)
+	}
+	query += fmt.Sprintf(" ORDER BY media_id LIMIT %d OFFSET %d", limit, offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []types.MediaItem{}
+	for rows.Next() {
+		var item types.MediaItem
+		if err := rows.Scan(&item.ID, &item.ZipIndex, &item.Zip, &item.Entry, &item.Category, &item.Date, &item.Year, &item.Type, &item.Ext, &item.LocalPath); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// MediaCount returns the total count of media items for a platform, optionally filtered by year.
+func (s *Store) MediaCount(platform, year string, userId int64) (int64, error) {
+	query := `SELECT COUNT(*) FROM media_items WHERE platform = ? AND user_id = ?`
+	args := []any{platform, userId}
+	if year != "" && year != "all" {
+		query += " AND year = ?"
+		args = append(args, year)
+	}
+
+	var count int64
+	err := s.db.QueryRow(query, args...).Scan(&count)
+	return count, err
+}
+
+type PlatformStats struct {
+	Platform      string `json:"platform"`
+	MediaCount    int64  `json:"mediaCount"`
+	ZipCount      int64  `json:"zipCount"`
+	ConversationCount int64 `json:"conversationCount"`
+	JsonFileCount   int64 `json:"jsonFileCount"`
+	ImageCount      int64 `json:"imageCount"`
+	VideoCount      int64 `json:"videoCount"`
+	YearsFound      int    `json:"yearsFound"`
+}
+
+func (s *Store) PlatformStats(platform string, userId int64) (*PlatformStats, error) {
+	var mediaCount, zipCount, convCount, jsonCount int64
+	var imgCnt, vidCnt int64
+	if err := s.db.QueryRow(`
+		SELECT COALESCE(SUM(image_count),0), COALESCE(SUM(video_count),0)
+		FROM (
+			SELECT COUNT(*) as image_count, 0 as video_count
+			FROM media_items WHERE platform=? AND user_id=? AND type='image'
+			UNION ALL
+			SELECT 0, COUNT(*)
+			FROM media_items WHERE platform=? AND user_id=? AND type='video'
+		)
+	`, platform, userId, platform, userId).Scan(&imgCnt, &vidCnt); err != nil {
+		return nil, err
+	}
+	mediaCount = imgCnt + vidCnt
+
+	s.db.QueryRow(`SELECT COUNT(*) FROM archive_files WHERE platform=? AND user_id=?`, platform, userId).Scan(&zipCount)
+	s.db.QueryRow(`SELECT COUNT(DISTINCT conversation_id) FROM conversations WHERE platform=? AND user_id=?`, platform, userId).Scan(&convCount)
+	s.db.QueryRow(`SELECT COUNT(*) FROM json_files WHERE platform=? AND user_id=?`, platform, userId).Scan(&jsonCount)
+
+	var yearsFound int
+	s.db.QueryRow(`SELECT COUNT(DISTINCT year) FROM media_items WHERE platform=? AND user_id=? AND year!='unknown'`, platform, userId).Scan(&yearsFound)
+
+	return &PlatformStats{
+		Platform:         platform,
+		MediaCount:       mediaCount,
+		ZipCount:         zipCount,
+		ConversationCount: convCount,
+		JsonFileCount:    jsonCount,
+		ImageCount:       imgCnt,
+		VideoCount:       vidCnt,
+		YearsFound:       yearsFound,
+	}, nil
+}
+
+// MediaCounts returns image and video counts for a platform/user in a single query.
+func (s *Store) MediaCounts(platform string, userId int64) (imgCount, vidCount int64, _ error) {
+	row := s.db.QueryRow(`
+		SELECT 
+		  SUM(CASE WHEN type = 'image' THEN 1 ELSE 0 END),
+		  SUM(CASE WHEN type = 'video' THEN 1 ELSE 0 END)
+		FROM media_items
+		WHERE platform = ? AND user_id = ?
+	`, platform, userId)
+	if err := row.Scan(&imgCount, &vidCount); err != nil {
+		return 0, 0, err
+	}
+	return imgCount, vidCount, nil
+}
+
+func (s *Store) loadJSONFiles(platform string, userId int64) ([]types.JsonFileRef, error) {
+	rows, err := s.db.Query(`
+		SELECT zip_index, zip, entry
+		FROM json_files
+		WHERE platform = ? AND user_id = ?
+		ORDER BY ordinal
+	`, platform, userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []types.JsonFileRef{}
+	for rows.Next() {
+		var item types.JsonFileRef
+		if err := rows.Scan(&item.ZipIndex, &item.Zip, &item.Entry); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) loadConversations(platform string, includeMessages bool, userId int64) ([]types.Conversation, error) {
+	rows, err := s.db.Query(`
+		SELECT conversation_id, title, message_count, saved_count, media_count, last_created
+		FROM conversations
+		WHERE platform = ? AND user_id = ?
+		ORDER BY last_created DESC
+	`, platform, userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []types.Conversation{}
+	for rows.Next() {
+		var convo types.Conversation
+		if err := rows.Scan(&convo.ID, &convo.Title, &convo.MessageCount, &convo.SavedCount, &convo.MediaCount, &convo.LastCreated); err != nil {
+			return nil, err
+		}
+		if includeMessages {
+			convo.Messages, err = s.loadMessages(platform, convo.ID, userId)
+			if err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, convo)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) loadMessages(platform, conversationID string, userId int64) ([]types.ChatMessage, error) {
+	rows, err := s.db.Query(`
+		SELECT from_name, content, media_type, created, is_sender, is_saved, media_ids
+		FROM messages
+		WHERE platform = ? AND user_id = ? AND conversation_id = ?
+		ORDER BY ordinal
+	`, platform, userId, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []types.ChatMessage{}
+	for rows.Next() {
+		var msg types.ChatMessage
+		var isSender, isSaved int
+		if err := rows.Scan(&msg.From, &msg.Content, &msg.MediaType, &msg.Created, &isSender, &isSaved, &msg.MediaIDs); err != nil {
+			return nil, err
+		}
+		msg.IsSender = isSender == 1
+		msg.IsSaved = isSaved == 1
+		out = append(out, msg)
+	}
+	return out, rows.Err()
 }
 
 func boolToInt(v bool) int {
@@ -299,4 +713,133 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+func (s *Store) WritePlatformSnapshotFile(platform string, snapshot any) error {
+	root := s.ProviderRoot(platform)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.ProviderSnapshotPath(platform), raw, 0o644)
+}
+
+func (s *Store) LoadProfile() (*Profile, error) {
+	var profile Profile
+	var loggedIn int
+	err := s.db.QueryRow(`
+		SELECT profile_id, username, full_name, logged_in
+		FROM profile
+		ORDER BY profile_id
+		LIMIT 1
+	`).Scan(&profile.ID, &profile.Username, &profile.FullName, &loggedIn)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &Profile{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	profile.LoggedIn = loggedIn == 1
+	return &profile, nil
+}
+
+func (s *Store) GetProfileByID(id int64) (*Profile, error) {
+	var profile Profile
+	var loggedIn int
+	err := s.db.QueryRow(`
+		SELECT profile_id, username, full_name, logged_in
+		FROM profile
+		WHERE profile_id = ?
+		LIMIT 1
+	`, id).Scan(&profile.ID, &profile.Username, &profile.FullName, &loggedIn)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &Profile{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	profile.LoggedIn = loggedIn == 1
+	return &profile, nil
+}
+
+func (s *Store) SaveProfile(profile Profile) error {
+	// Check if profile already exists by username
+	var existingID int64
+	err := s.db.QueryRow("SELECT profile_id FROM profile WHERE username = ?", profile.Username).Scan(&existingID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// New user - insert
+		result, err := s.db.Exec(`
+			INSERT INTO profile (username, full_name, logged_in)
+			VALUES (?, ?, ?)
+		`, profile.Username, profile.FullName, boolToInt(profile.LoggedIn))
+		if err != nil {
+			return err
+		}
+		id, _ := result.LastInsertId()
+		profile.ID = id
+		return nil
+	} else if err != nil {
+		return err
+	}
+	// Existing user - update
+	_, err = s.db.Exec(`
+		UPDATE profile SET full_name = ?, logged_in = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE profile_id = ?
+	`, profile.FullName, boolToInt(profile.LoggedIn), existingID)
+	return err
+}
+
+
+func (s *Store) Logout() error {
+	_, err := s.db.Exec("UPDATE profile SET logged_in = 0")
+	return err
+}
+
+func (s *Store) ActiveUser() (*Profile, error) {
+	var profile Profile
+	row := s.db.QueryRow("SELECT profile_id, username, full_name, logged_in FROM profile WHERE logged_in = 1 LIMIT 1")
+	err := row.Scan(&profile.ID, &profile.Username, &profile.FullName, &profile.LoggedIn)
+	if err != nil {
+		return &Profile{}, nil
+	}
+	return &profile, nil
+}
+
+func (s *Store) AvailableUsers() ([]UserEntry, error) {
+	rows, err := s.db.Query("SELECT profile_id, username, full_name FROM profile ORDER BY username")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []UserEntry
+	for rows.Next() {
+		var u UserEntry
+		if err := rows.Scan(&u.ID, &u.Username, &u.FullName); err != nil {
+			return nil, err
+		}
+		result = append(result, u)
+	}
+	return result, rows.Err()
+}
+
+type UserEntry struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+	FullName string `json:"fullName"`
+}
+
+func (s *Store) DebugJSON(platform string, userId int64) (string, error) {
+	snapshot, err := s.LoadSnapshot(platform, userId)
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }

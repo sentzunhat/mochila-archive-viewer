@@ -11,9 +11,9 @@ func (Provider) Name() string {
 }
 
 func (Provider) Status() string {
-	return "planned"
+	return "active"
 }
 
 func (Provider) Description() string {
-	return "Prepared for a future provider module once the Snapchat indexing flow reaches parity."
+	return "Facebook / Messenger — export indexer + conversation parser."
 }
