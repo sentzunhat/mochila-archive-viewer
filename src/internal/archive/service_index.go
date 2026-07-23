@@ -4,6 +4,7 @@ package archive
 import (
 	"path/filepath"
 
+	"mochila-archive-viewer/src/internal/providers/facebook"
 	"mochila-archive-viewer/src/internal/providers/instagram"
 	"mochila-archive-viewer/src/internal/providers/snapchat"
 	"mochila-archive-viewer/src/internal/types"
@@ -76,6 +77,11 @@ func (s *Service) IndexArchives(platform string) (*IndexSummary, error) {
 		}
 	case "instagram":
 		idx, conversations, err = instagram.IndexZips(paths)
+		if err != nil {
+			return nil, err
+		}
+	case "facebook":
+		idx, conversations, err = facebook.IndexZips(paths)
 		if err != nil {
 			return nil, err
 		}

@@ -26,8 +26,8 @@ Each row links to its plan file when one exists.
 
 | #   | Status      | Title                                                        | Plan File                        | Next action                                                |
 | --- | ----------- | ------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
-| 22  | inbox       | Facebook / Messenger provider: parser + indexer from scratch  | [active/022.md](./active/022.md) | Inspect real export first (Mojibake risk) |
-| 23  | in-progress | File decomposition: Zacatl-aligned domain boundaries (Go done, Svelte pending) | [active/023.md](./active/023.md) | Go splits complete; App.svelte split needs reactive-state audit |
+| 22  | in-progress | Facebook / Messenger provider: parser + indexer from scratch  | [active/022.md](./active/022.md) | Smoke test: load Facebook ZIP in UI, verify gallery + messages |
+| 23  | parked      | File decomposition: Zacatl-aligned domain boundaries (Go done, Svelte pending) | [active/023.md](./active/023.md) | Deferred; will resume after 022 closes |
 
 ---
 
