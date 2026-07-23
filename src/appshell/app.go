@@ -7,15 +7,22 @@ package appshell
 
 import (
 	"context"
+	"sync"
 
 	"mochila-archive-viewer/src/internal/archive"
 )
 
+type mediaCache struct {
+	mu    sync.RWMutex
+	cache map[string][]byte // key: "platform:userId:id"
+}
+
 type App struct {
-	ctx     context.Context
-	service *archive.Service
-	initErr error
-	version string
+	ctx         context.Context
+	service     *archive.Service
+	initErr     error
+	version     string
+	mediaCache  *mediaCache
 }
 
 type FrontendState struct {
@@ -28,7 +35,11 @@ type FrontendState struct {
 
 func NewApp() *App {
 	service, err := archive.NewService()
-	return &App{service: service, initErr: err}
+	return &App{
+		service:    service,
+		initErr:    err,
+		mediaCache: &mediaCache{cache: make(map[string][]byte)},
+	}
 }
 
 func (a *App) Startup(ctx context.Context) {
