@@ -24,10 +24,7 @@ Each row links to its plan file when one exists.
 
 ## Active Work
 
-| #   | Status      | Title                                                        | Plan File                        | Next action                                                |
-| --- | ----------- | ------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
-| 22  | in-progress | Facebook / Messenger provider: parser + indexer from scratch  | [active/022.md](./active/022.md) | Smoke test: load Facebook ZIP in UI, verify gallery + messages |
-| 23  | in-progress | File decomposition: Zacatl-aligned domain boundaries (Go + Svelte done) | [active/023.md](./active/023.md) | Smoke test: wails dev, verify all platforms work end-to-end |
+(none — all critical work complete)
 
 ---
 
@@ -37,6 +34,8 @@ Capped to the 10 most recent closures. Older closed items are not deleted — th
 
 | #   | Title                                                       | Closed     | Plan File                                          |
 | --- | ------------------------------------------------------------ | ---------- | ---------------------------------------------------- |
+| 23  | File decomposition: Zacatl-aligned domain boundaries (all criteria met + smoke test verified) | 2026-07-22 | [closed/2026/07/22/023.md](./closed/2026/07/22/023.md) |
+| 22  | Facebook / Messenger provider: parser + indexer + integration (end-to-end verified) | 2026-07-22 | [closed/2026/07/22/022.md](./closed/2026/07/22/022.md) |
 | 21  | Instagram provider: wire up + complete (all gaps G1–G5 fixed, smoke tested) | 2026-07-22 | [closed/2026/07/22/021.md](./closed/2026/07/22/021.md) |
 | 20  | Architecture & code quality audit (Zacatl-aligned) — 29/34 findings implemented | 2026-07-22 | [closed/2026/07/22/020.md](./closed/2026/07/22/020.md) |
 | 19  | Serve media over HTTP not base64-RPC (filter-switch fix)      | 2026-07-22 | [closed/2026/07/22/019.md](./closed/2026/07/22/019.md) |
